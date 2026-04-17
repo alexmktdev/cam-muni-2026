@@ -8,7 +8,7 @@ const consolidadoCacheado = unstable_cache(
   () => obtenerTodosLosMiembrosConsolidados(),
   ['admin-miembros-consolidado-v1'],
   {
-    revalidate: 3600,
+    revalidate: 7200,
     tags: [TAG_CACHE_MIEMBROS_CONSOLIDADO],
   },
 )

@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { COLECCIONES } from '@/constants'
 import { assertPuedeGestionar, assertSesionValida } from '@/lib/api/assertSessionGestion'
 import { getAdminFirestore } from '@/lib/firebase/adminFirebase'
-import { esRutChilenoFormatoValido } from '@/lib/validation/chileRut'
+import { esRutChilenoValido } from '@/lib/validation/chileRut'
 import { invalidarCachesTrasMutacionMiembrosClub } from '@/lib/cache/trasMutacionMiembrosClub'
 import {
   actualizarMiembroClub,
@@ -15,6 +15,8 @@ import {
 
 const idSchema = z.string().trim().min(1).max(128)
 
+const fechaSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD').optional().nullable()
+
 const patchBodySchema = z.object({
   nombre: z.string().trim().min(1).max(100),
   apellidos: z.string().trim().min(1).max(120),
@@ -23,7 +25,10 @@ const patchBodySchema = z.object({
     .trim()
     .min(1)
     .max(20)
-    .refine((s) => esRutChilenoFormatoValido(s), { message: 'RUT inválido' }),
+    .refine((s) => esRutChilenoValido(s), { message: 'RUT inválido (dígito verificador no coincide)' }),
+  fechaNacimiento: fechaSchema,
+  telefono: z.string().trim().max(30).optional().nullable(),
+  sector: z.string().trim().max(150).optional().nullable(),
 })
 
 export async function PATCH(

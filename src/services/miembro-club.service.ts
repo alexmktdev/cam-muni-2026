@@ -6,6 +6,8 @@ import { COLECCIONES } from '@/constants'
 import { parsearCsvTexto } from '@/lib/csv/parseCsvLineas'
 import { getAdminFirestore, getDocumentById } from '@/lib/firebase/adminFirebase'
 import { partirNombreCompletoCsv } from '@/lib/miembros-club/partirNombreCompleto'
+import { calcularEdad } from '@/lib/fecha/calcularEdad'
+import { normalizarNombrePersona } from '@/lib/normalizacion/normalizarNombre'
 import {
   esRutChilenoFormatoValido,
   formatearRutMostrar,
@@ -63,6 +65,7 @@ export function mapMiembroDocToCliente(
   if (!clubId || !nombre || !apellidos || !rut) {
     return null
   }
+  const fechaNacimiento = str(data.fechaNacimiento) || null
   return {
     id,
     clubId,
@@ -70,6 +73,10 @@ export function mapMiembroDocToCliente(
     apellidos,
     rut,
     rutFormateado: formatearRutMostrar(rut),
+    fechaNacimiento,
+    edad: calcularEdad(fechaNacimiento),
+    telefono: str(data.telefono) || null,
+    sector: str(data.sector) || null,
   }
 }
 
@@ -112,12 +119,14 @@ export async function totalMiembrosClubParaListado(clubId: string): Promise<numb
 export async function sincronizarContadorMiembrosEnClub(
   clubId: string,
   opts?: { actualizarPanelGlobal?: boolean },
-): Promise<void> {
+): Promise<{ conteo: number }> {
   const actualizarPanel = opts?.actualizarPanelGlobal !== false
   try {
-    const prev = await getDocumentById(COLECCIONES.clubes, clubId)
+    const [prev, n] = await Promise.all([
+      getDocumentById(COLECCIONES.clubes, clubId),
+      contarMiembrosPorClub(clubId),
+    ])
     const oldM = prev ? miembrosEnDocClub(prev) : 0
-    const n = await contarMiembrosPorClub(clubId)
     await getAdminFirestore()
       .collection(COLECCIONES.clubes)
       .doc(clubId)
@@ -125,8 +134,10 @@ export async function sincronizarContadorMiembrosEnClub(
     if (actualizarPanel) {
       await panelAjusteTrasReconteoClub(oldM, n)
     }
+    return { conteo: n }
   } catch (error) {
     console.error('sincronizarContadorMiembrosEnClub', error)
+    return { conteo: 0 }
   }
 }
 
@@ -161,25 +172,29 @@ export async function incrementarContadorMiembrosEnClub(clubId: string, delta: n
 const MIEMBROS_POR_PAGINA_MAX = 200
 
 /**
- * Página 1-based de miembros de un club (`offset` sobre orden por id de documento).
+ * Página de miembros de un club con paginación por cursor (startAfter).
+ * Si se provee `startAfterDocId`, se posiciona después de ese documento (evita el costo de offset).
  * Dentro de la página se ordena alfabéticamente para la tabla.
  */
 export async function listMiembrosPorClubPage(
   clubId: string,
-  page: number,
+  _page: number,
   pageSize: number,
-): Promise<{ miembros: MiembroClubCliente[] }> {
+  startAfterDocId?: string,
+): Promise<{ miembros: MiembroClubCliente[]; lastDocId: string | null }> {
   const lim = Math.min(Math.max(1, pageSize), MIEMBROS_POR_PAGINA_MAX)
-  const p = Math.max(1, page)
-  const offset = (p - 1) * lim
   try {
     const col = getAdminFirestore().collection(COLECCIONES.miembrosClub)
-    const snap = await col
+    let q = col
       .where('clubId', '==', clubId)
       .orderBy(FieldPath.documentId())
-      .offset(offset)
-      .limit(lim)
-      .get()
+
+    if (startAfterDocId) {
+      q = q.startAfter(startAfterDocId)
+    }
+
+    const snap = await q.limit(lim).get()
+
     const out: MiembroClubCliente[] = []
     for (const doc of snap.docs) {
       const m = mapMiembroDocToCliente(doc.id, doc.data() as Record<string, unknown>)
@@ -187,6 +202,11 @@ export async function listMiembrosPorClubPage(
         out.push(m)
       }
     }
+
+    const lastDocId = snap.docs.length > 0
+      ? snap.docs[snap.docs.length - 1]!.id
+      : null
+
     out.sort((a, b) => {
       return `${a.apellidos} ${a.nombre}`.localeCompare(
         `${b.apellidos} ${b.nombre}`,
@@ -194,10 +214,10 @@ export async function listMiembrosPorClubPage(
         { sensitivity: 'base' },
       )
     })
-    return { miembros: out }
+    return { miembros: out, lastDocId }
   } catch (error) {
     console.error('listMiembrosPorClubPage', error)
-    return { miembros: [] }
+    return { miembros: [], lastDocId: null }
   }
 }
 
@@ -242,6 +262,41 @@ export async function searchMiembrosPorClub(
   }
 }
 
+export type FiltrosMiembros = {
+  edadMin?: number
+  edadMax?: number
+  sector?: string
+  fechaDesde?: string
+  fechaHasta?: string
+}
+
+export function aplicarFiltrosMiembros(
+  miembros: MiembroClubCliente[],
+  filtros: FiltrosMiembros,
+): MiembroClubCliente[] {
+  return miembros.filter((m) => {
+    if (filtros.edadMin != null && (m.edad == null || m.edad < filtros.edadMin)) {
+      return false
+    }
+    if (filtros.edadMax != null && (m.edad == null || m.edad > filtros.edadMax)) {
+      return false
+    }
+    if (filtros.sector && m.sector && !m.sector.toLowerCase().includes(filtros.sector.toLowerCase())) {
+      return false
+    }
+    if (filtros.sector && !m.sector) {
+      return false
+    }
+    if (filtros.fechaDesde && (!m.fechaNacimiento || m.fechaNacimiento < filtros.fechaDesde)) {
+      return false
+    }
+    if (filtros.fechaHasta && (!m.fechaNacimiento || m.fechaNacimiento > filtros.fechaHasta)) {
+      return false
+    }
+    return true
+  })
+}
+
 export async function existeMiembroRutEnClub(
   clubId: string,
   rutNormalizado: string,
@@ -260,11 +315,38 @@ export async function existeMiembroRutEnClub(
   }
 }
 
+/**
+ * Carga todos los RUTs existentes de un club en un Set (1 query vs N queries individuales).
+ * Útil para importaciones masivas donde se verifica deduplicación fila por fila.
+ */
+export async function cargarRutsDelClub(clubId: string): Promise<Set<string>> {
+  const ruts = new Set<string>()
+  try {
+    const snap = await getAdminFirestore()
+      .collection(COLECCIONES.miembrosClub)
+      .where('clubId', '==', clubId)
+      .select('rut')
+      .get()
+    for (const doc of snap.docs) {
+      const r = doc.data().rut
+      if (typeof r === 'string' && r.trim()) {
+        ruts.add(r.trim())
+      }
+    }
+  } catch (error) {
+    console.error('cargarRutsDelClub', error)
+  }
+  return ruts
+}
+
 export type CrearMiembroClubInput = {
   clubId: string
   nombre: string
   apellidos: string
   rut: string
+  fechaNacimiento?: string | null
+  telefono?: string | null
+  sector?: string | null
 }
 
 export async function crearMiembroClub(
@@ -280,13 +362,23 @@ export async function crearMiembroClub(
     return { ok: false, codigo: 'duplicado' }
   }
   try {
-    const ref = await getAdminFirestore().collection(COLECCIONES.miembrosClub).add({
+    const docData: Record<string, unknown> = {
       clubId: input.clubId,
-      nombre: input.nombre.trim(),
-      apellidos: input.apellidos.trim(),
+      nombre: normalizarNombrePersona(input.nombre),
+      apellidos: normalizarNombrePersona(input.apellidos),
       rut,
       createdAt: FieldValue.serverTimestamp(),
-    })
+    }
+    if (input.fechaNacimiento) {
+      docData.fechaNacimiento = input.fechaNacimiento.trim()
+    }
+    if (input.telefono) {
+      docData.telefono = input.telefono.trim()
+    }
+    if (input.sector) {
+      docData.sector = input.sector.trim()
+    }
+    const ref = await getAdminFirestore().collection(COLECCIONES.miembrosClub).add(docData)
     await incrementarContadorMiembrosEnClub(input.clubId, 1)
     return { ok: true, id: ref.id }
   } catch (error) {
@@ -299,6 +391,9 @@ export type ActualizarMiembroClubInput = {
   nombre: string
   apellidos: string
   rut: string
+  fechaNacimiento?: string | null
+  telefono?: string | null
+  sector?: string | null
 }
 
 export async function obtenerMiembroClubPorId(
@@ -339,15 +434,25 @@ export async function actualizarMiembroClub(
     }
   }
   try {
+    const updateData: Record<string, unknown> = {
+      nombre: normalizarNombrePersona(input.nombre),
+      apellidos: normalizarNombrePersona(input.apellidos),
+      rut,
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    if (input.fechaNacimiento !== undefined) {
+      updateData.fechaNacimiento = input.fechaNacimiento || null
+    }
+    if (input.telefono !== undefined) {
+      updateData.telefono = input.telefono?.trim() || null
+    }
+    if (input.sector !== undefined) {
+      updateData.sector = input.sector?.trim() || null
+    }
     await getAdminFirestore()
       .collection(COLECCIONES.miembrosClub)
       .doc(id)
-      .update({
-        nombre: input.nombre.trim(),
-        apellidos: input.apellidos.trim(),
-        rut,
-        updatedAt: FieldValue.serverTimestamp(),
-      })
+      .update(updateData)
     return { ok: true }
   } catch (error) {
     console.error('actualizarMiembroClub', error)
@@ -460,6 +565,7 @@ export async function importarCsvMiembrosClub(
   const db = getAdminFirestore()
   const col = db.collection(COLECCIONES.miembrosClub)
   const rutsEnArchivo = new Set<string>()
+  const rutsExistentes = await cargarRutsDelClub(clubId)
 
   let agregados = 0
   let omitidosDuplicado = 0
@@ -511,7 +617,7 @@ export async function importarCsvMiembrosClub(
       continue
     }
     rutsEnArchivo.add(rut)
-    if (await existeMiembroRutEnClub(clubId, rut)) {
+    if (rutsExistentes.has(rut)) {
       omitidosDuplicado++
       continue
     }
@@ -553,13 +659,13 @@ export async function vaciarMiembrosDelClubEnFirestore(
 ): Promise<
   { ok: true; documentosEliminados: number } | { ok: false; codigo: 'club_invalido' | 'error' }
 > {
-  if (!(await clubDocumentoExiste(clubId))) {
-    return { ok: false, codigo: 'club_invalido' }
-  }
   const db = getAdminFirestore()
   const col = db.collection(COLECCIONES.miembrosClub)
   const prevClub = await getDocumentById(COLECCIONES.clubes, clubId)
-  const oldMStored = prevClub ? miembrosEnDocClub(prevClub) : 0
+  if (!prevClub) {
+    return { ok: false, codigo: 'club_invalido' }
+  }
+  const oldMStored = miembrosEnDocClub(prevClub)
   let documentosEliminados = 0
   try {
     for (;;) {
@@ -656,4 +762,58 @@ export async function vaciarTodosLosMiembrosClubEnFirestore(): Promise<Resultado
     console.error('vaciarTodosLosMiembrosClubEnFirestore', error)
     return { ok: false, codigo: 'error' }
   }
+}
+
+export type ResultadoNormalizacionMasiva = {
+  revisados: number
+  modificados: number
+  cambios: { id: string; antes: string; despues: string }[]
+}
+
+/**
+ * Preview: retorna los cambios que se harían sin aplicarlos.
+ * Si `aplicar` es true, escribe las correcciones en Firestore.
+ */
+export async function normalizarNombresMasivoClub(
+  clubId: string,
+  aplicar: boolean,
+): Promise<ResultadoNormalizacionMasiva> {
+  const db = getAdminFirestore()
+  const snap = await db
+    .collection(COLECCIONES.miembrosClub)
+    .where('clubId', '==', clubId)
+    .get()
+
+  const cambios: ResultadoNormalizacionMasiva['cambios'] = []
+  const updates: { ref: FirebaseFirestore.DocumentReference; nombre: string; apellidos: string }[] = []
+
+  for (const doc of snap.docs) {
+    const data = doc.data() as Record<string, unknown>
+    const nombreOrig = str(data.nombre)
+    const apellidosOrig = str(data.apellidos)
+    const nombreNorm = normalizarNombrePersona(nombreOrig)
+    const apellidosNorm = normalizarNombrePersona(apellidosOrig)
+
+    if (nombreOrig !== nombreNorm || apellidosOrig !== apellidosNorm) {
+      cambios.push({
+        id: doc.id,
+        antes: `${nombreOrig} ${apellidosOrig}`,
+        despues: `${nombreNorm} ${apellidosNorm}`,
+      })
+      updates.push({ ref: doc.ref, nombre: nombreNorm, apellidos: apellidosNorm })
+    }
+  }
+
+  if (aplicar && updates.length > 0) {
+    for (let i = 0; i < updates.length; i += BATCH_FIRESTORE_OP) {
+      const chunk = updates.slice(i, i + BATCH_FIRESTORE_OP)
+      const batch = db.batch()
+      for (const u of chunk) {
+        batch.update(u.ref, { nombre: u.nombre, apellidos: u.apellidos, updatedAt: FieldValue.serverTimestamp() })
+      }
+      await batch.commit()
+    }
+  }
+
+  return { revisados: snap.size, modificados: cambios.length, cambios }
 }

@@ -5,17 +5,15 @@ import { ROUTES, TEXTO_SUBTITULO_PANEL } from '@/constants'
 import { DashboardCharts } from '@/components/dashboard/DashboardCharts'
 import { DashboardRutStatsCallout } from '@/components/dashboard/DashboardRutStatsCallout'
 import { AppMainSection } from '@/components/layout/AppMainSection'
-import { canManageUsers } from '@/lib/auth/canManageUsers'
+import { getPuedeGestionarCacheado } from '@/lib/auth/sidebarProfile'
 import { obtenerDatosDashboardPublicosCacheados } from '@/lib/cache/obtenerDashboardPublicoCacheado'
 import { readVerifiedSession } from '@/lib/session/readSession'
-import { getUserProfileForSidebar } from '@/services/user.service'
 
 export default async function DashboardPage() {
   const session = await readVerifiedSession()
-  const perfil = session
-    ? await getUserProfileForSidebar(session.uid, session.email)
-    : null
-  const puedeActualizarStatsRut = canManageUsers(perfil?.role)
+  const puedeActualizarStatsRut = session
+    ? await getPuedeGestionarCacheado(session.uid, session.email)
+    : false
 
   const { r, chartsClubes } = await obtenerDatosDashboardPublicosCacheados()
   const statsPersonas = r.statsRut ?? { unicos: 0, duplicados: 0 }

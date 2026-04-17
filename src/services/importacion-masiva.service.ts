@@ -13,7 +13,7 @@ import { partirNombreCompletoCsv } from '@/lib/miembros-club/partirNombreComplet
 import { normalizarRutChile } from '@/lib/validation/chileRut'
 import {
   incrementarContadorMiembrosEnClub,
-  existeMiembroRutEnClub,
+  cargarRutsDelClub,
 } from '@/services/miembro-club.service'
 
 const BATCH_CSV_WRITES = 500
@@ -98,6 +98,17 @@ export async function importarMasivoDesdeCsv(
   // Prevenir que 2 renglones en el CSV manden la insercion del mismo rut al mismo club.
   const cacheRutEnClubYaImportadoEstaVez = new Set<string>()
 
+  // Pre-cargar RUTs existentes de cada club implicado (1 query por club vs N queries individuales).
+  const rutsExistentesPorClub = new Map<string, Set<string>>()
+  async function obtenerRutsClub(clubId: string): Promise<Set<string>> {
+    let s = rutsExistentesPorClub.get(clubId)
+    if (!s) {
+      s = await cargarRutsDelClub(clubId)
+      rutsExistentesPorClub.set(clubId, s)
+    }
+    return s
+  }
+
   // 2. Iterar renglón a renglón.
   for (let i = 1; i < filas.length; i++) {
     const fila = filas[i]!
@@ -151,8 +162,8 @@ export async function importarMasivoDesdeCsv(
         continue
       }
       
-      // Regla de Negocio: Deduplicador contra Firestore real.
-      if (await existeMiembroRutEnClub(clubId, rut)) {
+      const rutsClub = await obtenerRutsClub(clubId)
+      if (rutsClub.has(rut)) {
         omitidosDuplicado++
         cacheRutEnClubYaImportadoEstaVez.add(claveUnica)
         continue

@@ -5,18 +5,17 @@ import { ROUTES } from '@/constants'
 import { UsersManagementView } from '@/components/usuarios/UsersManagementView'
 import { AppMainSection } from '@/components/layout/AppMainSection'
 import { IconUsersTwo } from '@/components/layout/icons/NavIcons'
-import { canManageUsers } from '@/lib/auth/canManageUsers'
+import { getPuedeGestionarCacheado } from '@/lib/auth/sidebarProfile'
 import { readVerifiedSession } from '@/lib/session/readSession'
 import { obtenerUsuariosListadoCacheados } from '@/lib/cache/usersListCatalog'
-import { getUserProfileForSidebar, mapUsuarioListadoToCliente } from '@/services/user.service'
+import { mapUsuarioListadoToCliente } from '@/services/user.service'
 
 export default async function ScreenTwoPage() {
   const session = await readVerifiedSession()
   if (!session) {
     return null
   }
-  const perfilRequester = await getUserProfileForSidebar(session.uid, session.email)
-  const puedeGestionar = canManageUsers(perfilRequester?.role)
+  const puedeGestionar = await getPuedeGestionarCacheado(session.uid, session.email)
 
   const usuarios = await obtenerUsuariosListadoCacheados()
   const initialUsers = usuarios.map(mapUsuarioListadoToCliente)

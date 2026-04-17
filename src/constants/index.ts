@@ -18,6 +18,9 @@ export const TEXTO_SUBTITULO_ADMIN_CLUBES =
 export const TEXTO_SUBTITULO_ADMIN_MIEMBROS_CLUBES =
   'Seleccione un club para ver, agregar o importar miembros desde CSV (un club).'
 
+export const TEXTO_SUBTITULO_ADMIN_DIRECTIVAS_CAM =
+  'Registre lugar, día y horario de reunión y asigne cargos solo a personas ya dadas de alta como miembros del club.'
+
 /** Rol asignado automáticamente al crear usuario desde el panel (sin selector en UI). */
 export const ROL_ALTA_USUARIO_PANEL = 'admin'
 
@@ -36,6 +39,7 @@ export const ROUTES = {
   adminClubes: '/admin/clubes',
   adminMiembrosClubes: '/admin/miembros-clubes',
   adminMiembrosBusqueda: '/admin/miembros/busqueda',
+  adminDirectivas: '/admin/directivas',
 } as const
 
 /** Frase exacta que el administrador debe enviar para borrar todos los miembros de todos los clubes. */
@@ -57,6 +61,8 @@ export const COLECCIONES = {
   miembrosClub: 'miembros_club',
   /** Totales del panel (1 lectura): doc `panel` con totalClubes, activos, totalMiembros. */
   aggregates: 'aggregates',
+  /** Directiva de cada club (1 doc por club con array de miembros embebido). */
+  directivasClub: 'directivas_club',
 } as const
 
 /** Id del documento de resumen en `aggregates` (totales para dashboard). */

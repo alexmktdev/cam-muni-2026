@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { ROUTES } from '@/constants'
 import {
   IconBuilding,
+  IconCalendar,
   IconGridFour,
   IconSearch,
   IconUser,
@@ -46,6 +47,11 @@ const SECTIONS_ADMINISTRACION: Section[] = [
         href: ROUTES.adminMiembrosBusqueda,
         label: 'Búsqueda de miembros',
         Icon: IconSearch,
+      },
+      {
+        href: ROUTES.adminDirectivas,
+        label: 'Gestión de directivas CAM',
+        Icon: IconCalendar,
       },
     ],
   },

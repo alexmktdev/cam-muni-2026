@@ -104,3 +104,22 @@ export function invalidarCacheSidebarUsuario(uid: string): void {
     // Solo en runtime Next.
   }
 }
+
+/**
+ * Resuelve si el usuario puede gestionar (crear/editar/borrar) recursos.
+ * Cacheado 300 s para evitar releer `users` en cada navegación de page.
+ */
+export async function getPuedeGestionarCacheado(
+  uid: string,
+  emailSesion?: string | null,
+): Promise<boolean> {
+  const { canManageUsers } = await import('@/lib/auth/canManageUsers')
+  return unstable_cache(
+    async () => {
+      const perfil = await getUserProfileForSidebar(uid, emailSesion)
+      return canManageUsers(perfil?.role)
+    },
+    ['puede-gestionar-v1', uid],
+    { revalidate: 300, tags: [`sidebar-user-${uid}`] },
+  )()
+}

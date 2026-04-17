@@ -3,17 +3,15 @@
 import { NuevoUsuarioForm } from '@/components/usuarios/NuevoUsuarioForm'
 import { AppMainSection } from '@/components/layout/AppMainSection'
 import { TEXTO_SUBTITULO_NUEVO_USUARIO } from '@/constants'
-import { canManageUsers } from '@/lib/auth/canManageUsers'
+import { getPuedeGestionarCacheado } from '@/lib/auth/sidebarProfile'
 import { readVerifiedSession } from '@/lib/session/readSession'
-import { getUserProfileForSidebar } from '@/services/user.service'
 
 export default async function ScreenThreePage() {
   const session = await readVerifiedSession()
   if (!session) {
     return null
   }
-  const perfil = await getUserProfileForSidebar(session.uid, session.email)
-  const puedeCrear = canManageUsers(perfil?.role)
+  const puedeCrear = await getPuedeGestionarCacheado(session.uid, session.email)
 
   return (
     <AppMainSection

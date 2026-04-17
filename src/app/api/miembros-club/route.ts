@@ -7,20 +7,24 @@ import { COLECCIONES } from '@/constants'
 import { assertPuedeGestionar, assertSesionValida } from '@/lib/api/assertSessionGestion'
 import { TAG_CACHE_MIEMBROS_CLUB_API } from '@/lib/cache/miembrosClubApi'
 import { getAdminFirestore } from '@/lib/firebase/adminFirebase'
-import { esRutChilenoFormatoValido } from '@/lib/validation/chileRut'
+import { esRutChilenoValido } from '@/lib/validation/chileRut'
 import { invalidarCachesTrasMutacionMiembrosClub } from '@/lib/cache/trasMutacionMiembrosClub'
 import {
+  aplicarFiltrosMiembros,
   crearMiembroClub,
   listMiembrosPorClubPage,
   mapMiembroDocToCliente,
   searchMiembrosPorClub,
   totalMiembrosClubParaListado,
+  type FiltrosMiembros,
 } from '@/services/miembro-club.service'
 
 const clubIdQuery = z.string().trim().min(1).max(128)
 
 const limitQuery = z.coerce.number().int().min(1).max(200)
 const pageQuery = z.coerce.number().int().min(1).max(5000)
+
+const fechaSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD').optional().nullable()
 
 const postBodySchema = z.object({
   clubId: z.string().trim().min(1).max(128),
@@ -31,7 +35,10 @@ const postBodySchema = z.object({
     .trim()
     .min(1)
     .max(20)
-    .refine((s) => esRutChilenoFormatoValido(s), { message: 'RUT inválido' }),
+    .refine((s) => esRutChilenoValido(s), { message: 'RUT inválido (dígito verificador no coincide)' }),
+  fechaNacimiento: fechaSchema,
+  telefono: z.string().trim().max(30).optional().nullable(),
+  sector: z.string().trim().max(150).optional().nullable(),
 })
 
 export async function GET(request: Request) {
@@ -47,21 +54,37 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Indique un club' }, { status: 400 })
   }
 
+  const filtros: FiltrosMiembros = {}
+  const rawEdadMin = searchParams.get('edadMin')
+  const rawEdadMax = searchParams.get('edadMax')
+  const rawSector = searchParams.get('sector')
+  const rawFechaDesde = searchParams.get('fechaDesde')
+  const rawFechaHasta = searchParams.get('fechaHasta')
+  if (rawEdadMin) filtros.edadMin = parseInt(rawEdadMin, 10) || undefined
+  if (rawEdadMax) filtros.edadMax = parseInt(rawEdadMax, 10) || undefined
+  if (rawSector) filtros.sector = rawSector.trim()
+  if (rawFechaDesde) filtros.fechaDesde = rawFechaDesde.trim()
+  if (rawFechaHasta) filtros.fechaHasta = rawFechaHasta.trim()
+  const tieneFiltros = Object.values(filtros).some((v) => v != null)
+
   const queryParams = searchParams.get('q')
   if (queryParams != null && queryParams.trim() !== '') {
     const clubId = parsed.data
     const qNorm = queryParams.trim()
     const payload = await unstable_cache(
       async () => {
-        const miembros = await searchMiembrosPorClub(clubId, qNorm)
+        let miembros = await searchMiembrosPorClub(clubId, qNorm)
+        if (tieneFiltros) {
+          miembros = aplicarFiltrosMiembros(miembros, filtros)
+        }
         return {
           miembros,
           total: miembros.length,
           modo: 'busqueda' as const,
         }
       },
-      ['api-miembros-club', clubId, 'q', qNorm.slice(0, 160)],
-      { revalidate: 120, tags: [TAG_CACHE_MIEMBROS_CLUB_API] },
+      ['api-miembros-club', clubId, 'q', qNorm.slice(0, 160), JSON.stringify(filtros)],
+      { revalidate: 600, tags: [TAG_CACHE_MIEMBROS_CLUB_API] },
     )()
     return NextResponse.json(payload)
   }
@@ -78,23 +101,28 @@ export async function GET(request: Request) {
   const clubId = parsed.data
   const pageNum = pageParsed.data
   const lim = limParsed.data
+  const cursorParam = searchParams.get('cursor') ?? undefined
 
   const payload = await unstable_cache(
     async () => {
-      const [total, { miembros }] = await Promise.all([
+      const [total, result] = await Promise.all([
         totalMiembrosClubParaListado(clubId),
-        listMiembrosPorClubPage(clubId, pageNum, lim),
+        listMiembrosPorClubPage(clubId, pageNum, lim, cursorParam),
       ])
+      const miembrosFiltrados = tieneFiltros
+        ? aplicarFiltrosMiembros(result.miembros, filtros)
+        : result.miembros
       return {
-        miembros,
+        miembros: miembrosFiltrados,
         page: pageNum,
         pageSize: lim,
-        total,
+        total: tieneFiltros ? miembrosFiltrados.length : total,
+        nextCursor: result.lastDocId,
         modo: 'pagina' as const,
       }
     },
-    ['api-miembros-club', clubId, 'p', String(pageNum), String(lim)],
-    { revalidate: 120, tags: [TAG_CACHE_MIEMBROS_CLUB_API] },
+    ['api-miembros-club', clubId, 'p', String(pageNum), String(lim), cursorParam ?? '', JSON.stringify(filtros)],
+    { revalidate: 600, tags: [TAG_CACHE_MIEMBROS_CLUB_API] },
   )()
 
   return NextResponse.json(payload)

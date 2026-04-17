@@ -1,10 +1,17 @@
 // Gestión de clubes: datos desde Firestore (servidor); alta y baja vía API.
 
+import { unstable_cache } from 'next/cache'
 import { AdminClubesShell } from '@/components/clubes/AdminClubesShell'
-import { canManageUsers } from '@/lib/auth/canManageUsers'
+import { TAG_CACHE_DASHBOARD_DATOS } from '@/lib/cache/dashboardDatos'
+import { getPuedeGestionarCacheado } from '@/lib/auth/sidebarProfile'
 import { readVerifiedSession } from '@/lib/session/readSession'
-import { getUserProfileForSidebar } from '@/services/user.service'
 import { obtenerResumenPanelAdmin } from '@/services/panel-resumen.service'
+
+const panelCacheado = unstable_cache(
+  () => obtenerResumenPanelAdmin(),
+  ['panel-admin-clubes-v1'],
+  { revalidate: 300, tags: [TAG_CACHE_DASHBOARD_DATOS] },
+)
 
 export default async function AdminClubesPage() {
   const session = await readVerifiedSession()
@@ -12,9 +19,10 @@ export default async function AdminClubesPage() {
     return null
   }
 
-  const perfil = await getUserProfileForSidebar(session.uid, session.email)
-  const puedeGestionar = canManageUsers(perfil?.role)
-  const panel = await obtenerResumenPanelAdmin()
+  const [puedeGestionar, panel] = await Promise.all([
+    getPuedeGestionarCacheado(session.uid, session.email),
+    panelCacheado(),
+  ])
 
   return (
     <AdminClubesShell

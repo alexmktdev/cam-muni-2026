@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { resolverClubIdDesdeParamClub } from '@/lib/club/slugUrlClub'
 import {
@@ -45,33 +45,80 @@ function ordenarMiembros(list: MiembroClubCliente[]): MiembroClubCliente[] {
 type RespuestaMiembrosApi = {
   miembros: MiembroClubCliente[]
   total: number
+  nextCursor?: string | null
+}
+
+type FiltrosUI = {
+  edadMin: string
+  edadMax: string
+  sector: string
+  fechaDesde: string
+  fechaHasta: string
+}
+
+const FILTROS_VACIOS: FiltrosUI = {
+  edadMin: '',
+  edadMax: '',
+  sector: '',
+  fechaDesde: '',
+  fechaHasta: '',
+}
+
+function filtrosToParams(f: FiltrosUI): URLSearchParams {
+  const p = new URLSearchParams()
+  if (f.edadMin) p.set('edadMin', f.edadMin)
+  if (f.edadMax) p.set('edadMax', f.edadMax)
+  if (f.sector) p.set('sector', f.sector)
+  if (f.fechaDesde) p.set('fechaDesde', f.fechaDesde)
+  if (f.fechaHasta) p.set('fechaHasta', f.fechaHasta)
+  return p
+}
+
+function hayFiltrosActivos(f: FiltrosUI): boolean {
+  return Object.values(f).some((v) => v.trim() !== '')
 }
 
 async function fetchMiembrosPagina(
   clubId: string,
   page: number,
   limit: number,
+  filtros: FiltrosUI,
+  cursor?: string,
 ): Promise<RespuestaMiembrosApi> {
   const params = new URLSearchParams({
     clubId,
     page: String(page),
     limit: String(limit),
   })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  for (const [k, v] of filtrosToParams(filtros).entries()) {
+    params.set(k, v)
+  }
   const res = await fetch(`/api/miembros-club?${params.toString()}`, {
     credentials: 'include',
   })
   if (!res.ok) {
     throw new Error('Error al cargar miembros')
   }
-  const data = (await res.json()) as { miembros?: MiembroClubCliente[]; total?: number }
+  const data = (await res.json()) as { miembros?: MiembroClubCliente[]; total?: number; nextCursor?: string | null }
   return {
     miembros: data.miembros || [],
     total: typeof data.total === 'number' ? data.total : 0,
+    nextCursor: data.nextCursor ?? null,
   }
 }
 
-async function fetchMiembrosBusqueda(clubId: string, q: string): Promise<RespuestaMiembrosApi> {
+async function fetchMiembrosBusqueda(
+  clubId: string,
+  q: string,
+  filtros: FiltrosUI,
+): Promise<RespuestaMiembrosApi> {
   const params = new URLSearchParams({ clubId, q })
+  for (const [k, v] of filtrosToParams(filtros).entries()) {
+    params.set(k, v)
+  }
   const res = await fetch(`/api/miembros-club?${params.toString()}`, {
     credentials: 'include',
   })
@@ -100,7 +147,6 @@ export function MiembrosClubView({
   const queryClubes = useQuery({
     queryKey: ['clubes', 'all'],
     queryFn: () => fetch('/api/clubes?all=true').then(res => res.json()),
-    staleTime: 5 * 60 * 1000,
   })
 
   const clubes: ClubCliente[] = Array.isArray(queryClubes.data?.clubes)
@@ -114,10 +160,14 @@ export function MiembrosClubView({
     return resolverClubIdDesdeParamClub(clubParam, clubes)
   }, [clubes, clubParam])
 
+  const filtrosId = useId()
   const [clubId, setClubId] = useState('')
   const [pagina, setPagina] = useState(1)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [filtros, setFiltros] = useState<FiltrosUI>(FILTROS_VACIOS)
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false)
+  const cursoresRef = useRef<Map<number, string>>(new Map())
 
   /** Sincroniza el club seleccionado con `?club=` en cada navegación (id, slug u otro valor que resuelva el mapa). */
   useEffect(() => {
@@ -137,6 +187,9 @@ export function MiembrosClubView({
   const [eliminar, setEliminar] = useState<MiembroClubCliente | null>(null)
   const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
   const [pendingEliminar, setPendingEliminar] = useState(false)
+  const [normalizando, setNormalizando] = useState(false)
+  const [previewNorm, setPreviewNorm] = useState<{ antes: string; despues: string }[] | null>(null)
+  const [normMsg, setNormMsg] = useState<string | null>(null)
 
   // Debounce para evitar ráfagas de lecturas en Firestore al escribir (Backend-First)
   useEffect(() => {
@@ -148,22 +201,32 @@ export function MiembrosClubView({
 
   const modoBusqueda = debouncedQuery.trim() !== ''
 
+  const filtrosKey = JSON.stringify(filtros)
+
+  const cursorParaPagina = pagina > 1 ? cursoresRef.current.get(pagina) : undefined
+
   const queryMiembros = useQuery({
     queryKey: modoBusqueda
-      ? ['miembros', clubId, 'busqueda', debouncedQuery]
-      : ['miembros', clubId, 'pagina', pagina],
-    queryFn: () =>
-      modoBusqueda
-        ? fetchMiembrosBusqueda(clubId, debouncedQuery.trim())
-        : fetchMiembrosPagina(clubId, pagina, PAGE_SIZE),
+      ? ['miembros', clubId, 'busqueda', debouncedQuery, filtrosKey]
+      : ['miembros', clubId, 'pagina', pagina, filtrosKey],
+    queryFn: async () => {
+      if (modoBusqueda) {
+        return fetchMiembrosBusqueda(clubId, debouncedQuery.trim(), filtros)
+      }
+      const result = await fetchMiembrosPagina(clubId, pagina, PAGE_SIZE, filtros, cursorParaPagina)
+      if (result.nextCursor) {
+        cursoresRef.current.set(pagina + 1, result.nextCursor)
+      }
+      return result
+    },
     enabled: Boolean(clubId),
-    staleTime: 5 * 60 * 1000,
   })
 
   const refetch = queryMiembros.refetch
 
   useEffect(() => {
     setPagina(1)
+    cursoresRef.current.clear()
   }, [clubId, debouncedQuery])
 
   const clubSeleccionado = clubes.find((c) => c.id === clubId)
@@ -240,6 +303,50 @@ export function MiembrosClubView({
   const mostrandoDesde = totalResultadosListado === 0 ? 0 : (paginaSegura - 1) * PAGE_SIZE + 1
   const mostrandoHasta = Math.min(paginaSegura * PAGE_SIZE, totalResultadosListado)
 
+  async function previsualizarNormalizacion() {
+    if (!clubId || normalizando) return
+    setNormalizando(true)
+    setNormMsg(null)
+    try {
+      const res = await fetch('/api/miembros-club/normalizar-nombres', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ clubId, aplicar: false }),
+      })
+      if (!res.ok) { setNormMsg('Error al obtener preview'); return }
+      const data = (await res.json()) as { cambios: { antes: string; despues: string }[]; modificados: number }
+      if (data.modificados === 0) {
+        setNormMsg('Todos los nombres ya están normalizados.')
+        setPreviewNorm(null)
+      } else {
+        setPreviewNorm(data.cambios)
+      }
+    } finally {
+      setNormalizando(false)
+    }
+  }
+
+  async function aplicarNormalizacion() {
+    if (!clubId || normalizando) return
+    setNormalizando(true)
+    try {
+      const res = await fetch('/api/miembros-club/normalizar-nombres', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ clubId, aplicar: true }),
+      })
+      if (!res.ok) { setNormMsg('Error al aplicar'); return }
+      const data = (await res.json()) as { modificados: number }
+      setNormMsg(`Se normalizaron ${data.modificados} registro(s).`)
+      setPreviewNorm(null)
+      queryClient.invalidateQueries({ queryKey: ['miembros', clubId] })
+    } finally {
+      setNormalizando(false)
+    }
+  }
+
 
   async function confirmarEliminar() {
     const m = eliminar
@@ -314,6 +421,63 @@ export function MiembrosClubView({
         onConfirm={() => void confirmarEliminar()}
       />
 
+      {normMsg ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          {normMsg}
+          <button type="button" onClick={() => setNormMsg(null)} className="ml-3 text-xs font-semibold underline">Cerrar</button>
+        </div>
+      ) : null}
+
+      {previewNorm ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-bold text-slate-800">
+            Preview de normalización ({previewNorm.length} cambios)
+          </h3>
+          <div className="mt-3 max-h-60 overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-500">
+                  <th className="px-2 py-1">Antes</th>
+                  <th className="px-2 py-1">Después</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {previewNorm.slice(0, 50).map((c, i) => (
+                  <tr key={i}>
+                    <td className="px-2 py-1 text-red-700 line-through">{c.antes}</td>
+                    <td className="px-2 py-1 font-medium text-emerald-800">{c.despues}</td>
+                  </tr>
+                ))}
+                {previewNorm.length > 50 ? (
+                  <tr>
+                    <td colSpan={2} className="px-2 py-1 text-slate-500">
+                      …y {previewNorm.length - 50} más
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              disabled={normalizando}
+              onClick={() => void aplicarNormalizacion()}
+              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {normalizando ? 'Aplicando…' : 'Aplicar normalización'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewNorm(null)}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <label htmlFor="select-club-miembros" className="text-sm font-bold text-slate-800">
           Club
@@ -370,6 +534,14 @@ export function MiembrosClubView({
               </button>
               <button
                 type="button"
+                disabled={!botonesActivos || normalizando}
+                onClick={() => void previsualizarNormalizacion()}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50/90 px-4 py-2.5 text-sm font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {normalizando ? 'Procesando…' : 'Normalizar nombres'}
+              </button>
+              <button
+                type="button"
                 disabled={!botonesActivos}
                 onClick={() => setModalVaciarClub(true)}
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-300 bg-white px-4 py-2.5 text-sm font-bold text-red-800 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45"
@@ -413,6 +585,98 @@ export function MiembrosClubView({
             />
           </div>
 
+          <div className="overflow-hidden rounded-xl border border-blue-900/15 bg-white shadow-md ring-1 ring-blue-900/10">
+            <div className="p-3 sm:p-4">
+              <button
+                type="button"
+                onClick={() => setFiltrosAbiertos((v) => !v)}
+                className="inline-flex max-w-full items-center gap-2.5 rounded-xl bg-blue-800 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+              >
+                Filtros avanzados
+                {hayFiltrosActivos(filtros) ? (
+                  <span className="inline-block rounded-full bg-amber-300 px-2.5 py-0.5 text-[10px] font-extrabold text-amber-950 shadow-sm">
+                    Activos
+                  </span>
+                ) : null}
+                <span className="text-base leading-none text-white/90" aria-hidden>
+                  {filtrosAbiertos ? '▲' : '▼'}
+                </span>
+              </button>
+            </div>
+            {filtrosAbiertos ? (
+              <div className="border-t border-slate-100 px-4 pb-4 pt-1">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor={`${filtrosId}-edadMin`} className="text-xs font-medium text-slate-600">Edad mínima</label>
+                    <input
+                      id={`${filtrosId}-edadMin`}
+                      type="number"
+                      min="0"
+                      max="150"
+                      value={filtros.edadMin}
+                      onChange={(e) => setFiltros((f) => ({ ...f, edadMin: e.target.value }))}
+                      className="rounded-lg border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+                      placeholder="Ej: 60"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor={`${filtrosId}-edadMax`} className="text-xs font-medium text-slate-600">Edad máxima</label>
+                    <input
+                      id={`${filtrosId}-edadMax`}
+                      type="number"
+                      min="0"
+                      max="150"
+                      value={filtros.edadMax}
+                      onChange={(e) => setFiltros((f) => ({ ...f, edadMax: e.target.value }))}
+                      className="rounded-lg border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+                      placeholder="Ej: 80"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor={`${filtrosId}-sector`} className="text-xs font-medium text-slate-600">Sector</label>
+                    <input
+                      id={`${filtrosId}-sector`}
+                      type="text"
+                      value={filtros.sector}
+                      onChange={(e) => setFiltros((f) => ({ ...f, sector: e.target.value }))}
+                      className="rounded-lg border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+                      placeholder="Ej: Villa"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor={`${filtrosId}-fechaDesde`} className="text-xs font-medium text-slate-600">Nacimiento desde</label>
+                    <input
+                      id={`${filtrosId}-fechaDesde`}
+                      type="date"
+                      value={filtros.fechaDesde}
+                      onChange={(e) => setFiltros((f) => ({ ...f, fechaDesde: e.target.value }))}
+                      className="rounded-lg border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor={`${filtrosId}-fechaHasta`} className="text-xs font-medium text-slate-600">Nacimiento hasta</label>
+                    <input
+                      id={`${filtrosId}-fechaHasta`}
+                      type="date"
+                      value={filtros.fechaHasta}
+                      onChange={(e) => setFiltros((f) => ({ ...f, fechaHasta: e.target.value }))}
+                      className="rounded-lg border border-slate-300 px-2.5 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+                    />
+                  </div>
+                </div>
+                {hayFiltrosActivos(filtros) ? (
+                  <button
+                    type="button"
+                    onClick={() => setFiltros(FILTROS_VACIOS)}
+                    className="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Limpiar filtros
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             {muestraCargando ? (
               <div className="overflow-x-auto">
@@ -422,12 +686,15 @@ export function MiembrosClubView({
                       <th className="w-14 px-3 py-3 text-center">#</th>
                       <th className="px-4 py-3">Nombre completo</th>
                       <th className="px-4 py-3">RUT</th>
+                      <th className="hidden px-4 py-3 lg:table-cell">Edad</th>
+                      <th className="hidden px-4 py-3 md:table-cell">Teléfono</th>
+                      <th className="hidden px-4 py-3 lg:table-cell">Sector</th>
                       <th className="px-4 py-3 text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {Array.from({ length: 5 }).map((_, i) => (
-                      <TableRowSkeleton key={i} columns={4} />
+                      <TableRowSkeleton key={i} columns={7} />
                     ))}
                   </tbody>
                 </table>
@@ -452,6 +719,9 @@ export function MiembrosClubView({
                       <th className="w-14 px-3 py-3 text-center">#</th>
                       <th className="px-4 py-3">Nombre completo</th>
                       <th className="px-4 py-3">RUT</th>
+                      <th className="hidden px-4 py-3 lg:table-cell">Edad</th>
+                      <th className="hidden px-4 py-3 md:table-cell">Teléfono</th>
+                      <th className="hidden px-4 py-3 lg:table-cell">Sector</th>
                       <th className="px-4 py-3 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -473,6 +743,15 @@ export function MiembrosClubView({
                           </div>
                         </td>
                         <td className="px-4 py-3 tabular-nums text-slate-600">{m.rutFormateado}</td>
+                        <td className="hidden px-4 py-3 tabular-nums text-slate-600 lg:table-cell">
+                          {m.edad != null ? `${m.edad} años` : '—'}
+                        </td>
+                        <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
+                          {m.telefono || '—'}
+                        </td>
+                        <td className="hidden px-4 py-3 text-slate-600 lg:table-cell">
+                          {m.sector || '—'}
+                        </td>
                         <td className="px-4 py-3">
                           {puedeGestionar ? (
                             <div className="flex flex-wrap justify-end gap-2">
