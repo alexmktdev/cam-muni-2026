@@ -21,9 +21,14 @@ type Item = {
   Icon: typeof IconGridFour
 }
 
+/** Separador visual (misma línea que entre Panel de control y Administración). */
+type SidebarSeparator = { separator: true }
+
+type SectionItem = Item | SidebarSeparator
+
 type Section = {
   title: string
-  items: Item[]
+  items: SectionItem[]
 }
 
 const SECTIONS_SUPERIOR: Section[] = [
@@ -38,16 +43,19 @@ const SECTIONS_ADMINISTRACION: Section[] = [
     title: 'Administración',
     items: [
       { href: ROUTES.adminClubes, label: 'Gestión de clubes', Icon: IconBuilding },
+      { separator: true },
       {
         href: ROUTES.adminMiembrosClubes,
         label: 'Gestión de miembros de clubes',
         Icon: IconUsersTwo,
       },
+      { separator: true },
       {
         href: ROUTES.adminMiembrosBusqueda,
         label: 'Búsqueda de miembros',
         Icon: IconSearch,
       },
+      { separator: true },
       {
         href: ROUTES.adminDirectivas,
         label: 'Gestión de directivas CAM',
@@ -90,7 +98,20 @@ function SectionBlock({
             {section.title}
           </h3>
           <ul className="flex flex-col gap-2.5">
-            {section.items.map(({ href, label, Icon }) => {
+            {section.items.map((entry, itemIndex) => {
+              if (!('href' in entry)) {
+                return (
+                  <li
+                    key={`sep-${section.title}-${itemIndex}`}
+                    role="presentation"
+                    className="list-none"
+                    aria-hidden
+                  >
+                    <div className="border-t border-slate-200/70" />
+                  </li>
+                )
+              }
+              const { href, label, Icon } = entry
               const active = pathname === href
               return (
                 <li key={href}>

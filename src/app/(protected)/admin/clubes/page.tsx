@@ -10,7 +10,7 @@ import { obtenerResumenPanelAdmin } from '@/services/panel-resumen.service'
 const panelCacheado = unstable_cache(
   () => obtenerResumenPanelAdmin(),
   ['panel-admin-clubes-v1'],
-  { revalidate: 300, tags: [TAG_CACHE_DASHBOARD_DATOS] },
+  { revalidate: 1800, tags: [TAG_CACHE_DASHBOARD_DATOS] },
 )
 
 export default async function AdminClubesPage() {

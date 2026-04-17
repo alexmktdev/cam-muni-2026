@@ -16,6 +16,6 @@ export async function obtenerDatosDashboardPublicosCacheados() {
       return { r, chartsClubes }
     },
     ['dashboard-publico-v1'],
-    { revalidate: 240, tags: [TAG_CACHE_DASHBOARD_DATOS] },
+    { revalidate: 1800, tags: [TAG_CACHE_DASHBOARD_DATOS] },
   )()
 }

@@ -2,6 +2,11 @@
 import type { NextConfig } from 'next'
 
 const siguienteConfig: NextConfig = {
+  experimental: {
+    staleTimes: {
+      dynamic: 30,
+    },
+  },
   async headers() {
     return [
       {
