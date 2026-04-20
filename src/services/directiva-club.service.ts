@@ -53,8 +53,9 @@ export async function obtenerDirectivaClub(
       return null
     }
     const data = doc.data() as Record<string, unknown>
+    const clubIdGuardado = str(data.clubId) || clubId
     return {
-      clubId,
+      clubId: clubIdGuardado,
       miembros: parseMiembrosDirectiva(data.miembros),
       lugarReunion: str(data.lugarReunion),
       diaReunion: str(data.diaReunion),
@@ -63,6 +64,17 @@ export async function obtenerDirectivaClub(
   } catch (error) {
     console.error('obtenerDirectivaClub', error)
     return null
+  }
+}
+
+/** Borra el documento de directiva del club (si existía). */
+export async function eliminarDirectivaClub(clubId: string): Promise<boolean> {
+  try {
+    await getAdminFirestore().collection(COLECCIONES.directivasClub).doc(clubId).delete()
+    return true
+  } catch (error) {
+    console.error('eliminarDirectivaClub', error)
+    return false
   }
 }
 
@@ -116,6 +128,8 @@ export async function guardarDirectivaClub(
       .doc(clubId)
       .set(
         {
+          /** Mismo valor que el id del documento; útil en exportes y reglas sin depender solo del path. */
+          clubId,
           miembros,
           lugarReunion: input.lugarReunion.trim(),
           diaReunion: input.diaReunion.trim(),

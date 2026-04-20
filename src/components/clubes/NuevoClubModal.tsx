@@ -4,7 +4,8 @@
 
 import { useId, useState, type FormEvent } from 'react'
 import { TextField } from '@/components/ui/TextField'
-import { IconCheckCircle } from '@/components/layout/icons/NavIcons'
+import { SugerenciaOrtografica } from '@/components/ui/SugerenciaOrtografica'
+import { IconCheckCircle, IconRefresh } from '@/components/layout/icons/NavIcons'
 import type { ClubCliente } from '@/types/club.types'
 
 export interface NuevoClubModalProps {
@@ -12,6 +13,25 @@ export interface NuevoClubModalProps {
   onClose: () => void
   /** Si se creó un club, el padre puede actualizar la lista. */
   onCreado?: (club: ClubCliente) => void
+}
+
+type Sugerencia = { offset: number; length: number; mensaje: string; reemplazos: string[] }
+
+async function revisarOrtografia(texto: string): Promise<Sugerencia[]> {
+  if (!texto.trim()) return []
+  try {
+    const res = await fetch('/api/ortografia/revisar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ texto }),
+    })
+    if (!res.ok) return []
+    const data = (await res.json()) as { sugerencias?: Sugerencia[] }
+    return data.sugerencias ?? []
+  } catch {
+    return []
+  }
 }
 
 export function NuevoClubModal({ open, onClose, onCreado }: NuevoClubModalProps) {
@@ -23,6 +43,10 @@ export function NuevoClubModal({ open, onClose, onCreado }: NuevoClubModalProps)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [exito, setExito] = useState(false)
+  const [revisandoOrtografia, setRevisandoOrtografia] = useState(false)
+  const [sugNombre, setSugNombre] = useState<Sugerencia[]>([])
+  const [sugComuna, setSugComuna] = useState<Sugerencia[]>([])
+  const [sugRegion, setSugRegion] = useState<Sugerencia[]>([])
 
   function cerrarTodo() {
     setNombre('')
@@ -31,6 +55,9 @@ export function NuevoClubModal({ open, onClose, onCreado }: NuevoClubModalProps)
     setActivo(true)
     setError(null)
     setExito(false)
+    setSugNombre([])
+    setSugComuna([])
+    setSugRegion([])
     onClose()
   }
 
@@ -41,7 +68,27 @@ export function NuevoClubModal({ open, onClose, onCreado }: NuevoClubModalProps)
     setActivo(true)
     setError(null)
     setExito(false)
+    setSugNombre([])
+    setSugComuna([])
+    setSugRegion([])
     onClose()
+  }
+
+  async function handleRevisarOrtografia() {
+    if (revisandoOrtografia) return
+    setRevisandoOrtografia(true)
+    try {
+      const [resNombre, resComuna, resRegion] = await Promise.all([
+        revisarOrtografia(nombre),
+        revisarOrtografia(comuna),
+        revisarOrtografia(region),
+      ])
+      setSugNombre(resNombre)
+      setSugComuna(resComuna)
+      setSugRegion(resRegion)
+    } finally {
+      setRevisandoOrtografia(false)
+    }
   }
 
   async function onSubmit(e: FormEvent) {
@@ -124,6 +171,17 @@ export function NuevoClubModal({ open, onClose, onCreado }: NuevoClubModalProps)
             </p>
 
             <form onSubmit={(e) => void onSubmit(e)} className="mt-6 space-y-4">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void handleRevisarOrtografia()}
+                  disabled={revisandoOrtografia || (!nombre.trim() && !comuna.trim() && !region.trim())}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-white hover:text-blue-700 disabled:opacity-50"
+                >
+                  <IconRefresh className={`h-3.5 w-3.5 ${revisandoOrtografia ? 'animate-spin' : ''}`} />
+                  {revisandoOrtografia ? 'Revisando...' : 'Revisar ortografía'}
+                </button>
+              </div>
               <div>
                 <TextField
                   fieldId={`${baseId}-nombre`}
@@ -133,34 +191,56 @@ export function NuevoClubModal({ open, onClose, onCreado }: NuevoClubModalProps)
                   required
                   maxLength={196}
                   placeholder="Ej. El trigal"
-                  autoComplete="organization"
+                  autoComplete="off"
+                  spellCheck={false}
                   className="font-normal"
+                />
+                <SugerenciaOrtografica
+                  sugerencias={sugNombre}
+                  onAceptar={(texto) => { setNombre(texto); setSugNombre([]) }}
+                  textoOriginal={nombre}
                 />
                 <p className="mt-1 text-xs text-slate-500">
                   Se guardará con el prefijo <strong className="text-slate-700">CAM</strong> (por ejemplo:{' '}
                   <span className="font-medium text-slate-700">CAM El trigal</span>).
                 </p>
               </div>
-              <TextField
-                fieldId={`${baseId}-comuna`}
-                label="Comuna"
-                value={comuna}
-                onChange={(ev) => setComuna(ev.target.value)}
-                required
-                maxLength={120}
-                autoComplete="address-level2"
-                className="font-normal"
-              />
-              <TextField
-                fieldId={`${baseId}-region`}
-                label="Región"
-                value={region}
-                onChange={(ev) => setRegion(ev.target.value)}
-                required
-                maxLength={120}
-                autoComplete="address-level1"
-                className="font-normal"
-              />
+              <div>
+                <TextField
+                  fieldId={`${baseId}-comuna`}
+                  label="Comuna"
+                  value={comuna}
+                  onChange={(ev) => setComuna(ev.target.value)}
+                  required
+                  maxLength={120}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="font-normal"
+                />
+                <SugerenciaOrtografica
+                  sugerencias={sugComuna}
+                  onAceptar={(texto) => { setComuna(texto); setSugComuna([]) }}
+                  textoOriginal={comuna}
+                />
+              </div>
+              <div>
+                <TextField
+                  fieldId={`${baseId}-region`}
+                  label="Región"
+                  value={region}
+                  onChange={(ev) => setRegion(ev.target.value)}
+                  required
+                  maxLength={120}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="font-normal"
+                />
+                <SugerenciaOrtografica
+                  sugerencias={sugRegion}
+                  onAceptar={(texto) => { setRegion(texto); setSugRegion([]) }}
+                  textoOriginal={region}
+                />
+              </div>
               <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
                 <input
                   type="checkbox"
@@ -176,6 +256,12 @@ export function NuevoClubModal({ open, onClose, onCreado }: NuevoClubModalProps)
                   {error}
                 </p>
               ) : null}
+              <p className="text-[10px] text-slate-400">
+                Corrección ortográfica con{' '}
+                <a href="https://languagetool.org" target="_blank" rel="noopener" className="underline">
+                  LanguageTool
+                </a>
+              </p>
 
               <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-5">
                 <button

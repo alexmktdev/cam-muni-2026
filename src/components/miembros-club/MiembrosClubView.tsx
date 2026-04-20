@@ -227,7 +227,7 @@ export function MiembrosClubView({
   useEffect(() => {
     setPagina(1)
     cursoresRef.current.clear()
-  }, [clubId, debouncedQuery])
+  }, [clubId, debouncedQuery, filtrosKey])
 
   const clubSeleccionado = clubes.find((c) => c.id === clubId)
   const totalMiembrosReferencia = clubSeleccionado?.miembros ?? 0
@@ -680,21 +680,22 @@ export function MiembrosClubView({
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             {muestraCargando ? (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[36rem] text-left text-sm">
+                <table className="w-full min-w-[44rem] text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/80 text-[0.6875rem] font-bold uppercase tracking-wide text-slate-500">
                       <th className="w-14 px-3 py-3 text-center">#</th>
                       <th className="px-4 py-3">Nombre completo</th>
                       <th className="px-4 py-3">RUT</th>
-                      <th className="hidden px-4 py-3 lg:table-cell">Edad</th>
+                      <th className="hidden px-4 py-3 lg:table-cell">Fecha nacimiento</th>
+                      <th className="hidden px-4 py-3 xl:table-cell">Edad</th>
                       <th className="hidden px-4 py-3 md:table-cell">Teléfono</th>
-                      <th className="hidden px-4 py-3 lg:table-cell">Sector</th>
+                      <th className="hidden px-4 py-3 xl:table-cell">Sector</th>
                       <th className="px-4 py-3 text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {Array.from({ length: 5 }).map((_, i) => (
-                      <TableRowSkeleton key={i} columns={7} />
+                      <TableRowSkeleton key={i} columns={8} />
                     ))}
                   </tbody>
                 </table>
@@ -713,15 +714,16 @@ export function MiembrosClubView({
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[36rem] text-left text-sm">
+                <table className="w-full min-w-[44rem] text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/80 text-[0.6875rem] font-bold uppercase tracking-wide text-slate-500">
                       <th className="w-14 px-3 py-3 text-center">#</th>
                       <th className="px-4 py-3">Nombre completo</th>
                       <th className="px-4 py-3">RUT</th>
-                      <th className="hidden px-4 py-3 lg:table-cell">Edad</th>
+                      <th className="hidden px-4 py-3 lg:table-cell">Fecha nacimiento</th>
+                      <th className="hidden px-4 py-3 xl:table-cell">Edad</th>
                       <th className="hidden px-4 py-3 md:table-cell">Teléfono</th>
-                      <th className="hidden px-4 py-3 lg:table-cell">Sector</th>
+                      <th className="hidden px-4 py-3 xl:table-cell">Sector</th>
                       <th className="px-4 py-3 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -744,12 +746,15 @@ export function MiembrosClubView({
                         </td>
                         <td className="px-4 py-3 tabular-nums text-slate-600">{m.rutFormateado}</td>
                         <td className="hidden px-4 py-3 tabular-nums text-slate-600 lg:table-cell">
+                          {m.fechaNacimiento || '—'}
+                        </td>
+                        <td className="hidden px-4 py-3 tabular-nums text-slate-600 xl:table-cell">
                           {m.edad != null ? `${m.edad} años` : '—'}
                         </td>
                         <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
                           {m.telefono || '—'}
                         </td>
-                        <td className="hidden px-4 py-3 text-slate-600 lg:table-cell">
+                        <td className="hidden px-4 py-3 text-slate-600 xl:table-cell">
                           {m.sector || '—'}
                         </td>
                         <td className="px-4 py-3">

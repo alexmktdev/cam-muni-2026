@@ -1,9 +1,10 @@
-// GET: obtener directiva (sesión). PUT: guardar directiva (sesión + gestión).
+// GET: obtener directiva (sesión). PUT: guardar (sesión + gestión). DELETE: borrar doc (gestión).
 
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { assertPuedeGestionar, assertSesionValida } from '@/lib/api/assertSessionGestion'
 import {
+  eliminarDirectivaClub,
   guardarDirectivaClub,
   obtenerDirectivaClub,
 } from '@/services/directiva-club.service'
@@ -94,4 +95,30 @@ export async function PUT(
 
   const directiva = await obtenerDirectivaClub(idParsed.data)
   return NextResponse.json({ directiva })
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ clubId: string }> },
+) {
+  const auth = await assertSesionValida()
+  if (auth instanceof NextResponse) {
+    return auth
+  }
+  const forbidden = await assertPuedeGestionar(auth)
+  if (forbidden) {
+    return forbidden
+  }
+
+  const { clubId: rawId } = await context.params
+  const idParsed = clubIdSchema.safeParse(rawId)
+  if (!idParsed.success) {
+    return NextResponse.json({ error: 'Club inválido' }, { status: 400 })
+  }
+
+  const ok = await eliminarDirectivaClub(idParsed.data)
+  if (!ok) {
+    return NextResponse.json({ error: 'No se pudo eliminar la directiva' }, { status: 500 })
+  }
+  return NextResponse.json({ exito: true })
 }

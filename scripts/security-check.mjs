@@ -45,6 +45,10 @@ async function main() {
   if (r.status === 401) ok('GET /api/auth/verify sin cookie → 401')
   else bad('GET /api/auth/verify sin cookie debe ser 401', `status ${r.status}`)
 
+  r = await fetch(`${BASE_URL}/api/shell-context`, { redirect: 'manual' })
+  if (r.status === 401) ok('GET /api/shell-context sin cookie → 401')
+  else bad('GET /api/shell-context sin cookie debe ser 401', `status ${r.status}`)
+
   // --- Crear sesión: cuerpos inválidos o token falso ---
   r = await fetch(`${BASE_URL}/api/auth/session`, {
     method: 'POST',

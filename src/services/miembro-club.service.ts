@@ -5,14 +5,11 @@ import { FieldPath, FieldValue, type QueryDocumentSnapshot } from 'firebase-admi
 import { COLECCIONES } from '@/constants'
 import { parsearCsvTexto } from '@/lib/csv/parseCsvLineas'
 import { getAdminFirestore, getDocumentById } from '@/lib/firebase/adminFirebase'
+import { aplicarFiltrosMiembros, type FiltrosMiembros } from '@/lib/miembros-club/aplicarFiltrosMiembros'
+import { mapMiembroDocToCliente } from '@/lib/miembros-club/mapMiembroDocToCliente'
 import { partirNombreCompletoCsv } from '@/lib/miembros-club/partirNombreCompleto'
-import { calcularEdad } from '@/lib/fecha/calcularEdad'
 import { normalizarNombrePersona } from '@/lib/normalizacion/normalizarNombre'
-import {
-  esRutChilenoFormatoValido,
-  formatearRutMostrar,
-  normalizarRutChile,
-} from '@/lib/validation/chileRut'
+import { esRutChilenoFormatoValido, normalizarRutChile } from '@/lib/validation/chileRut'
 import { listClubesFromFirestore } from '@/services/club.service'
 import {
   panelAjusteTrasReconteoClub,
@@ -21,6 +18,9 @@ import {
   reconstruirYGuardarResumenPanel,
 } from '@/services/panel-resumen.service'
 import type { MiembroClubCliente } from '@/types/miembro-club.types'
+
+export type { FiltrosMiembros }
+export { aplicarFiltrosMiembros, mapMiembroDocToCliente }
 
 function miembrosEnDocClub(data: Record<string, unknown>): number {
   for (const raw of [
@@ -52,32 +52,6 @@ function clubDataActivo(data: Record<string, unknown>): boolean {
 
 function str(raw: unknown, fallback = ''): string {
   return typeof raw === 'string' ? raw.trim() : fallback
-}
-
-export function mapMiembroDocToCliente(
-  id: string,
-  data: Record<string, unknown>,
-): MiembroClubCliente | null {
-  const clubId = str(data.clubId)
-  const nombre = str(data.nombre) || str(data.nombres)
-  const apellidos = str(data.apellidos) || str(data.apellido)
-  const rut = normalizarRutChile(str(data.rut))
-  if (!clubId || !nombre || !apellidos || !rut) {
-    return null
-  }
-  const fechaNacimiento = str(data.fechaNacimiento) || null
-  return {
-    id,
-    clubId,
-    nombre,
-    apellidos,
-    rut,
-    rutFormateado: formatearRutMostrar(rut),
-    fechaNacimiento,
-    edad: calcularEdad(fechaNacimiento),
-    telefono: str(data.telefono) || null,
-    sector: str(data.sector) || null,
-  }
 }
 
 export async function clubDocumentoExiste(clubId: string): Promise<boolean> {
@@ -222,35 +196,46 @@ export async function listMiembrosPorClubPage(
 }
 
 /**
- * Búsqueda optimizada por servidor. 
- * Trae un conjunto limitado de resultados para filtrar en el backend antes de enviar al cliente.
+ * Búsqueda y filtrado optimizado por servidor. 
+ * Trae un conjunto amplio de resultados (hasta 500) para filtrar en el backend antes de enviar al cliente.
+ * Esto permite que los "Filtros avanzados" funcionen sobre una base representativa sin necesidad de un motor de búsqueda externo.
  */
 export async function searchMiembrosPorClub(
   clubId: string,
   query: string,
+  filtros?: FiltrosMiembros,
 ): Promise<MiembroClubCliente[]> {
   const q = query.trim().toLowerCase()
-  if (!q) return []
+  const tieneFiltros = filtros && Object.values(filtros).some(v => v != null)
+  
+  if (!q && !tieneFiltros) return []
 
   try {
     const col = getAdminFirestore().collection(COLECCIONES.miembrosClub)
     
-    // Para ahorrar lecturas, traemos un máximo de 200 registros del club para filtrar en memoria del servidor.
-    // En una implementación más avanzada se usaría un índice de búsqueda (Algolia/Elastic) o campos de búsqueda prefijados.
+    // Traemos un máximo de 500 registros del club para filtrar en memoria del servidor.
+    // En la mayoría de los clubes de adulto mayor, esto cubrirá el 100% de la membresía.
     const snap = await col
       .where('clubId', '==', clubId)
-      .limit(200) 
+      .limit(500) 
       .get()
 
-    const out: MiembroClubCliente[] = []
+    let out: MiembroClubCliente[] = []
     for (const doc of snap.docs) {
       const m = mapMiembroDocToCliente(doc.id, doc.data() as Record<string, unknown>)
       if (m) {
-        const blob = `${m.nombre} ${m.apellidos} ${m.rut} ${m.rutFormateado}`.toLowerCase()
-        if (blob.includes(q)) {
-          out.push(m)
+        // 1. Filtro por texto (si existe)
+        if (q) {
+          const blob = `${m.nombre} ${m.apellidos} ${m.rut} ${m.rutFormateado}`.toLowerCase()
+          if (!blob.includes(q)) continue
         }
+        out.push(m)
       }
+    }
+
+    // 2. Aplicar filtros avanzados (si existen)
+    if (tieneFiltros) {
+      out = aplicarFiltrosMiembros(out, filtros!)
     }
 
     return out.sort((a, b) =>
@@ -260,41 +245,6 @@ export async function searchMiembrosPorClub(
     console.error('searchMiembrosPorClub', error)
     return []
   }
-}
-
-export type FiltrosMiembros = {
-  edadMin?: number
-  edadMax?: number
-  sector?: string
-  fechaDesde?: string
-  fechaHasta?: string
-}
-
-export function aplicarFiltrosMiembros(
-  miembros: MiembroClubCliente[],
-  filtros: FiltrosMiembros,
-): MiembroClubCliente[] {
-  return miembros.filter((m) => {
-    if (filtros.edadMin != null && (m.edad == null || m.edad < filtros.edadMin)) {
-      return false
-    }
-    if (filtros.edadMax != null && (m.edad == null || m.edad > filtros.edadMax)) {
-      return false
-    }
-    if (filtros.sector && m.sector && !m.sector.toLowerCase().includes(filtros.sector.toLowerCase())) {
-      return false
-    }
-    if (filtros.sector && !m.sector) {
-      return false
-    }
-    if (filtros.fechaDesde && (!m.fechaNacimiento || m.fechaNacimiento < filtros.fechaDesde)) {
-      return false
-    }
-    if (filtros.fechaHasta && (!m.fechaNacimiento || m.fechaNacimiento > filtros.fechaHasta)) {
-      return false
-    }
-    return true
-  })
 }
 
 export async function existeMiembroRutEnClub(

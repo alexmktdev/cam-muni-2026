@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { ChunkLoadRecovery } from '@/components/providers/ChunkLoadRecovery'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import './globals.css'
 
@@ -12,6 +13,7 @@ export default function LayoutRaiz({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body className="font-sans">
         <QueryProvider>
+          <ChunkLoadRecovery />
           {children}
         </QueryProvider>
       </body>

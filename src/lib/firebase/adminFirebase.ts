@@ -18,6 +18,20 @@ let adminApp: App | null = null
 let firestoreRaw: Firestore | null = null
 let firestoreResolved: Firestore | null = null
 
+/**
+ * Clave PEM desde .env / Vercel: quita comillas si se pegaron como parte del valor y aplica \n.
+ */
+function normalizarClavePrivadaFirebase(raw: string): string {
+  let s = raw.trim()
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1)
+  }
+  return s.replace(/\\n/g, '\n')
+}
+
 function getOrCreateAdminApp(): App {
   if (adminApp) {
     return adminApp
@@ -32,7 +46,13 @@ function getOrCreateAdminApp(): App {
         projectId: env.FIREBASE_ID_PROYECTO,
       })
     } else {
-      const privateKey = env.FIREBASE_CLAVE_PRIVADA.replace(/\\n/g, '\n')
+      // El Admin SDK usa FIREBASE_AUTH_EMULATOR_HOST / FIRESTORE_EMULATOR_HOST si existen en
+      // process.env. Si quedan definidas en Vercel por error, verifyIdToken apunta al emulador
+      // local y falla con tokens reales. Solo en modo emulador explícito las conservamos.
+      delete process.env.FIREBASE_AUTH_EMULATOR_HOST
+      delete process.env.FIRESTORE_EMULATOR_HOST
+
+      const privateKey = normalizarClavePrivadaFirebase(env.FIREBASE_CLAVE_PRIVADA)
       adminApp = initializeApp({
         credential: cert({
           projectId: env.FIREBASE_ID_PROYECTO,

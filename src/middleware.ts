@@ -3,31 +3,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { NOMBRE_COOKIE_SESION, ROUTES } from '@/constants'
-
-function esRutaProtegida(ruta: string): boolean {
-  if (ruta === ROUTES.dashboard || ruta.startsWith(`${ROUTES.dashboard}/`)) {
-    return true
-  }
-  if (ruta === ROUTES.screenTwo || ruta.startsWith(`${ROUTES.screenTwo}/`)) {
-    return true
-  }
-  if (ruta === ROUTES.screenThree || ruta.startsWith(`${ROUTES.screenThree}/`)) {
-    return true
-  }
-  if (ruta === '/admin' || ruta.startsWith('/admin/')) {
-    return true
-  }
-  return false
-}
-
-function esRutaAutenticacion(ruta: string): boolean {
-  return (
-    ruta === ROUTES.login ||
-    ruta.startsWith(`${ROUTES.login}/`) ||
-    ruta === ROUTES.forgotPassword ||
-    ruta.startsWith(`${ROUTES.forgotPassword}/`)
-  )
-}
+import { esRutaAutenticacion, esRutaProtegida } from '@/lib/middleware/matchRutasSesion'
 
 export function middleware(solicitud: NextRequest) {
   const cookieSesion = solicitud.cookies.get(NOMBRE_COOKIE_SESION)

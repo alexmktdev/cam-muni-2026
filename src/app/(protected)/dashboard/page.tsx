@@ -7,15 +7,19 @@ import { DashboardRutStatsCallout } from '@/components/dashboard/DashboardRutSta
 import { AppMainSection } from '@/components/layout/AppMainSection'
 import { getPuedeGestionarCacheado } from '@/lib/auth/sidebarProfile'
 import { obtenerDatosDashboardPublicosCacheados } from '@/lib/cache/obtenerDashboardPublicoCacheado'
+import { prewarmPageCaches } from '@/lib/cache/prewarmPageCaches'
 import { readVerifiedSession } from '@/lib/session/readSession'
 
 export default async function DashboardPage() {
   const session = await readVerifiedSession()
-  const puedeActualizarStatsRut = session
-    ? await getPuedeGestionarCacheado(session.uid, session.email)
-    : false
+  if (session) {
+    prewarmPageCaches(session.uid, session.email)
+  }
 
-  const { r, chartsClubes } = await obtenerDatosDashboardPublicosCacheados()
+  const [puedeActualizarStatsRut, { r, chartsClubes }] = await Promise.all([
+    session ? getPuedeGestionarCacheado(session.uid, session.email) : Promise.resolve(false),
+    obtenerDatosDashboardPublicosCacheados(),
+  ])
   const statsPersonas = r.statsRut ?? { unicos: 0, duplicados: 0 }
   const statsRutEnPanel = r.statsRut !== null
 

@@ -3,6 +3,7 @@
 import { useCallback, useId, useMemo, useState, type FormEvent } from 'react'
 import { TextField } from '@/components/ui/TextField'
 import { SugerenciaOrtografica } from '@/components/ui/SugerenciaOrtografica'
+import { IconRefresh } from '@/components/layout/icons/NavIcons'
 import { calcularEdad } from '@/lib/fecha/calcularEdad'
 import { esRutChilenoValido } from '@/lib/validation/chileRut'
 import type { MiembroClubCliente } from '@/types/miembro-club.types'
@@ -51,6 +52,8 @@ export function NuevoMiembroClubModal({
   const [rutError, setRutError] = useState<string | null>(null)
   const [sugNombre, setSugNombre] = useState<Sugerencia[]>([])
   const [sugApellidos, setSugApellidos] = useState<Sugerencia[]>([])
+  const [sugSector, setSugSector] = useState<Sugerencia[]>([])
+  const [revisandoOrtografia, setRevisandoOrtografia] = useState(false)
 
   function reset() {
     setNombre('')
@@ -63,6 +66,7 @@ export function NuevoMiembroClubModal({
     setRutError(null)
     setSugNombre([])
     setSugApellidos([])
+    setSugSector([])
   }
 
   function cerrar() {
@@ -81,13 +85,22 @@ export function NuevoMiembroClubModal({
     )
   }
 
-  const onBlurNombre = useCallback(async () => {
-    setSugNombre(await revisarOrtografia(nombre))
-  }, [nombre])
-
-  const onBlurApellidos = useCallback(async () => {
-    setSugApellidos(await revisarOrtografia(apellidos))
-  }, [apellidos])
+  const handleRevisarOrtografia = async () => {
+    if (revisandoOrtografia) return
+    setRevisandoOrtografia(true)
+    try {
+      const [resNombre, resApellidos, resSector] = await Promise.all([
+        revisarOrtografia(nombre),
+        revisarOrtografia(apellidos),
+        revisarOrtografia(sector),
+      ])
+      setSugNombre(resNombre)
+      setSugApellidos(resApellidos)
+      setSugSector(resSector)
+    } finally {
+      setRevisandoOrtografia(false)
+    }
+  }
 
   const edadCalculada = useMemo(
     () => calcularEdad(fechaNacimiento || null),
@@ -162,16 +175,28 @@ export function NuevoMiembroClubModal({
           Datos del adulto mayor para este club.
         </p>
         <form onSubmit={(e) => void onSubmit(e)} className="mt-6 space-y-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleRevisarOrtografia()}
+              disabled={revisandoOrtografia || (!nombre.trim() && !apellidos.trim() && !sector.trim())}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-white hover:text-blue-700 disabled:opacity-50"
+            >
+              <IconRefresh className={`h-3.5 w-3.5 ${revisandoOrtografia ? 'animate-spin' : ''}`} />
+              {revisandoOrtografia ? 'Revisando...' : 'Revisar ortografía'}
+            </button>
+          </div>
           <div>
             <TextField
               fieldId={`${baseId}-nombre`}
               label="Nombres"
               value={nombre}
               onChange={(ev) => setNombre(ev.target.value)}
-              onBlur={() => void onBlurNombre()}
               required
               maxLength={100}
               className="font-normal"
+              spellCheck={false}
+              autoComplete="off"
             />
             <SugerenciaOrtografica
               sugerencias={sugNombre}
@@ -185,10 +210,11 @@ export function NuevoMiembroClubModal({
               label="Apellidos"
               value={apellidos}
               onChange={(ev) => setApellidos(ev.target.value)}
-              onBlur={() => void onBlurApellidos()}
               required
               maxLength={120}
               className="font-normal"
+              spellCheck={false}
+              autoComplete="off"
             />
             <SugerenciaOrtografica
               sugerencias={sugApellidos}
@@ -264,6 +290,13 @@ export function NuevoMiembroClubModal({
             maxLength={150}
             placeholder="Ej: Villa Los Aromos"
             className="font-normal"
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <SugerenciaOrtografica
+            sugerencias={sugSector}
+            onAceptar={(texto) => { setSector(texto); setSugSector([]) }}
+            textoOriginal={sector}
           />
           {error ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

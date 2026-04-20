@@ -4,7 +4,8 @@ import type { NextConfig } from 'next'
 const siguienteConfig: NextConfig = {
   experimental: {
     staleTimes: {
-      dynamic: 30,
+      /** Reutilizar layout/páginas dinámicas en cliente más tiempo = menos vuelos RSC al navegar. */
+      dynamic: 90,
     },
   },
   async headers() {

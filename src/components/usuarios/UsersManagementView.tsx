@@ -2,7 +2,9 @@
 
 'use client'
 
+import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import { QUERY_KEY_SHELL_PERFIL } from '@/lib/query/shellProfileQueryKey'
 import type { UsuarioListaCliente } from '@/types/user.types'
 import { IconMail, IconPencil, IconSearch, IconTrash } from '@/components/layout/icons/NavIcons'
 import { UserDeleteConfirmModal } from '@/components/usuarios/UserDeleteConfirmModal'
@@ -71,6 +73,7 @@ export function UsersManagementView({
   puedeGestionar,
   miUsuarioId,
 }: UsersManagementViewProps) {
+  const queryClient = useQueryClient()
   const [users, setUsers] = useState(initialUsers)
   const [query, setQuery] = useState('')
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -104,6 +107,9 @@ export function UsersManagementView({
         return
       }
       setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, active } : u)))
+      if (id === miUsuarioId) {
+        void queryClient.invalidateQueries({ queryKey: [...QUERY_KEY_SHELL_PERFIL] })
+      }
     } finally {
       setPendingId(null)
     }
@@ -150,6 +156,9 @@ export function UsersManagementView({
           onClose={() => setEditando(null)}
           onGuardado={(actualizado) => {
             setUsers((prev) => prev.map((x) => (x.id === actualizado.id ? actualizado : x)))
+            if (actualizado.id === miUsuarioId) {
+              void queryClient.invalidateQueries({ queryKey: [...QUERY_KEY_SHELL_PERFIL] })
+            }
           }}
         />
       ) : null}

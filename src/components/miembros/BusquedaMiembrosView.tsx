@@ -10,6 +10,7 @@ import {
   IconUsersTwo,
 } from '@/components/layout/icons/NavIcons'
 import { Button } from '@/components/ui/Button'
+import { normalizarTextoBusqueda } from '@/lib/texto/normalizarTextoBusqueda'
 import type { RespuestaBusquedaConsolidada } from '@/services/busqueda-miembros.service'
 
 /** Formatea RUT sin puntos ni guion a formato 12.345.678-9 */
@@ -33,6 +34,8 @@ export interface BusquedaMiembrosViewProps {
   statsIniciales: StatsInicialesBusqueda
 }
 
+type EstadoFiltro = 'todos' | 'duplicados' | 'unicos'
+
 /**
  * Página de Búsqueda Global de Miembros.
  * Totales inmediatos desde `aggregates/panel` (1 lectura). La lista consolidada
@@ -42,7 +45,8 @@ export function BusquedaMiembrosView({ statsIniciales }: BusquedaMiembrosViewPro
   const [data, setData] = useState<RespuestaBusquedaConsolidada | null>(null)
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [showOnlyDuplicates, setShowOnlyDuplicates] = useState(false)
+  const [estadoFiltro, setEstadoFiltro] = useState<EstadoFiltro>('todos')
+  const [menuFiltroAbierto, setMenuFiltroAbierto] = useState(false)
   const [showList, setShowList] = useState(false)
   const [pagina, setPagina] = useState(1)
   const PAGE_SIZE = 10
@@ -70,33 +74,36 @@ export function BusquedaMiembrosView({ statsIniciales }: BusquedaMiembrosViewPro
 
   useEffect(() => {
     setPagina(1)
-  }, [searchQuery, showOnlyDuplicates])
+  }, [searchQuery, estadoFiltro])
 
   const filteredMiembros = useMemo(() => {
     if (!data) return []
     let result = data.miembros
 
-    const q = searchQuery.trim().toLowerCase()
+    const q = normalizarTextoBusqueda(searchQuery)
     if (q) {
       if (q === 'duplicado' || q === 'duplicados') {
         result = result.filter((m) => m.esDuplicado)
-      } else if (q === 'unico' || q === 'unicos' || q === 'único' || q === 'únicos') {
+      } else if (q === 'unico' || q === 'unicos') {
         result = result.filter((m) => !m.esDuplicado)
       } else {
         result = result.filter(
           (m) =>
-            m.nombreCompleto.toLowerCase().includes(q) ||
-            m.rut.toLowerCase().includes(q),
+            normalizarTextoBusqueda(m.nombreCompleto).includes(q) ||
+            normalizarTextoBusqueda(m.rut).includes(q),
         )
       }
     }
 
-    if (showOnlyDuplicates) {
+    if (estadoFiltro === 'duplicados') {
       result = result.filter((m) => m.esDuplicado)
+    }
+    if (estadoFiltro === 'unicos') {
+      result = result.filter((m) => !m.esDuplicado)
     }
 
     return result
-  }, [data, searchQuery, showOnlyDuplicates])
+  }, [data, searchQuery, estadoFiltro])
 
   const totalResultados = filteredMiembros.length
   const totalPaginas = Math.max(1, Math.ceil(totalResultados / PAGE_SIZE))
@@ -129,7 +136,7 @@ export function BusquedaMiembrosView({ statsIniciales }: BusquedaMiembrosViewPro
 
   const handleVerTodos = async () => {
     setSearchQuery('')
-    setShowOnlyDuplicates(false)
+    setEstadoFiltro('todos')
     await fetchConsolidadoSiHaceFalta()
     setShowList(true)
   }
@@ -141,8 +148,16 @@ export function BusquedaMiembrosView({ statsIniciales }: BusquedaMiembrosViewPro
 
   const handleLimpiar = () => {
     setSearchQuery('')
-    setShowOnlyDuplicates(false)
+    setEstadoFiltro('todos')
+    setMenuFiltroAbierto(false)
     setShowList(false)
+  }
+
+  const handleSeleccionFiltro = async (siguiente: EstadoFiltro) => {
+    const nuevoEstado = estadoFiltro === siguiente ? 'todos' : siguiente
+    setEstadoFiltro(nuevoEstado)
+    await fetchConsolidadoSiHaceFalta()
+    setShowList(true)
   }
 
   return (
@@ -152,6 +167,10 @@ export function BusquedaMiembrosView({ statsIniciales }: BusquedaMiembrosViewPro
       TitleIcon={IconUsersTwo}
     >
       <div className="space-y-6">
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          Acá se pueden ver los miembros duplicados o únicos en los diferentes clubes.
+        </div>
+
         {!statsIniciales.statsRutEnPanel ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Los totales mostrados pueden no estar actualizados. Para recalcular
@@ -241,23 +260,49 @@ export function BusquedaMiembrosView({ statsIniciales }: BusquedaMiembrosViewPro
           />
         </div>
 
-        {showList && data ? (
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowOnlyDuplicates(!showOnlyDuplicates)}
-              className={`flex items-center gap-2 px-4 shadow-sm ${
-                showOnlyDuplicates
-                  ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
+        <div className="flex justify-start">
+          <div className="flex flex-wrap items-center justify-start gap-2">
+            <button
+              type="button"
+              onClick={() => setMenuFiltroAbierto((v) => !v)}
+              className="inline-flex h-11 items-center justify-center rounded-lg bg-blue-900 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-950"
             >
-              <IconDuplicate className="h-4 w-4" />
-              {showOnlyDuplicates ? 'Viendo solo duplicados' : 'Filtrar duplicados'}
-            </Button>
+              Filtrar por estado
+            </button>
+            {menuFiltroAbierto ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleSeleccionFiltro('duplicados')}
+                  className={`inline-flex h-11 items-center justify-center rounded-lg px-5 text-sm font-bold shadow-sm transition ${
+                    estadoFiltro === 'duplicados'
+                      ? 'border border-rose-700 bg-rose-600 text-white hover:bg-rose-700'
+                      : 'border border-slate-400 bg-slate-300 text-slate-900 hover:bg-slate-400'
+                  }`}
+                >
+                  <IconDuplicate className="mr-2 h-4 w-4" />
+                  Miembros Duplicados
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSeleccionFiltro('unicos')}
+                  className={`inline-flex h-11 items-center justify-center rounded-lg px-5 text-sm font-bold shadow-sm transition ${
+                    estadoFiltro === 'unicos'
+                      ? 'border border-rose-700 bg-rose-600 text-white hover:bg-rose-700'
+                      : 'border border-slate-400 bg-slate-300 text-slate-900 hover:bg-slate-400'
+                  }`}
+                >
+                  <IconFingerprint className="mr-2 h-4 w-4" />
+                  Miembros Unicos
+                </button>
+              </>
+            ) : null}
           </div>
-        ) : null}
+        </div>
+        <p className="text-sm text-slate-600">
+          Usa <strong>Filtrar por estado</strong> para mostrar solo miembros duplicados o solo miembros
+          únicos entre los clubes.
+        </p>
 
         {!showList ? (
           <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 py-20 text-center">

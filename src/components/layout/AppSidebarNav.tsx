@@ -3,7 +3,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 import { ROUTES } from '@/constants'
 import {
   IconBuilding,
@@ -75,6 +76,25 @@ const SECTIONS_INFERIOR: Section[] = [
   },
 ]
 
+function hrefsDesdeSecciones(sections: Section[]): string[] {
+  const out: string[] = []
+  for (const s of sections) {
+    for (const item of s.items) {
+      if ('href' in item) {
+        out.push(item.href)
+      }
+    }
+  }
+  return out
+}
+
+/** Rutas del menú lateral (prefetch al montar). */
+export const SIDEBAR_NAV_HREFS = [
+  ...hrefsDesdeSecciones(SECTIONS_SUPERIOR),
+  ...hrefsDesdeSecciones(SECTIONS_ADMINISTRACION),
+  ...hrefsDesdeSecciones(SECTIONS_INFERIOR),
+]
+
 function SectionBlock({
   sections,
   firstHeadingNoTopMargin,
@@ -117,6 +137,7 @@ function SectionBlock({
                 <li key={href}>
                   <Link
                     href={href}
+                    prefetch
                     onClick={() => onItemClick?.()}
                     className={`flex items-center gap-3.5 rounded-lg py-3 pl-2.5 pr-3.5 text-[0.9375rem] font-semibold leading-snug transition ${
                       active
@@ -148,6 +169,14 @@ export interface AppSidebarNavProps {
 }
 
 export function AppSidebarNav({ onItemClick }: AppSidebarNavProps) {
+  const router = useRouter()
+
+  useEffect(() => {
+    for (const href of SIDEBAR_NAV_HREFS) {
+      router.prefetch(href)
+    }
+  }, [router])
+
   return (
     <nav
       className="flex min-h-0 flex-1 flex-col"

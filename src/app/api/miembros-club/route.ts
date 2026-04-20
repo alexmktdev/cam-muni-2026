@@ -60,23 +60,30 @@ export async function GET(request: Request) {
   const rawSector = searchParams.get('sector')
   const rawFechaDesde = searchParams.get('fechaDesde')
   const rawFechaHasta = searchParams.get('fechaHasta')
-  if (rawEdadMin) filtros.edadMin = parseInt(rawEdadMin, 10) || undefined
-  if (rawEdadMax) filtros.edadMax = parseInt(rawEdadMax, 10) || undefined
+
+  if (rawEdadMin) {
+    const n = parseInt(rawEdadMin, 10)
+    if (!isNaN(n)) filtros.edadMin = n
+  }
+  if (rawEdadMax) {
+    const n = parseInt(rawEdadMax, 10)
+    if (!isNaN(n)) filtros.edadMax = n
+  }
   if (rawSector) filtros.sector = rawSector.trim()
   if (rawFechaDesde) filtros.fechaDesde = rawFechaDesde.trim()
   if (rawFechaHasta) filtros.fechaHasta = rawFechaHasta.trim()
+
   const tieneFiltros = Object.values(filtros).some((v) => v != null)
 
   const queryParams = searchParams.get('q')
-  if (queryParams != null && queryParams.trim() !== '') {
+  const qNorm = (queryParams ?? '').trim()
+
+  // Si hay búsqueda por texto O filtros avanzados activos, usamos la estrategia de carga amplia (hasta 500)
+  if (qNorm !== '' || tieneFiltros) {
     const clubId = parsed.data
-    const qNorm = queryParams.trim()
     const payload = await unstable_cache(
       async () => {
-        let miembros = await searchMiembrosPorClub(clubId, qNorm)
-        if (tieneFiltros) {
-          miembros = aplicarFiltrosMiembros(miembros, filtros)
-        }
+        const miembros = await searchMiembrosPorClub(clubId, qNorm, filtros)
         return {
           miembros,
           total: miembros.length,

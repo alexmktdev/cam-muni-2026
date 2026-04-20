@@ -19,13 +19,13 @@ build/
 dist/
 
 # ─── Variables de entorno y secretos (NUNCA subir) ────────────────────────────
-# Cubre .env, .env.local, .env.production, etc.
+# Cubre .env, .env.local, .env.production, .env.development.local, etc.
 .env
 .env.*
+.env.local.example
+# Plantillas genéricas (solo nombres exactos; el resto de .env.* sigue ignorado).
 !.env.example
-!.env.*.example
 !.env.sample
-!.env.*.sample
 
 # ─── Claves y credenciales (archivos sueltos habituales) ──────────────────────
 *.pem
@@ -43,8 +43,8 @@ firebase-adminsdk*.json
 secrets/
 credentials/
 
-# ─── Firebase / Firestore (config y reglas con lógica de acceso) ─────────────
-# Incluye reglas e índices: no exponen contraseñas pero definen el modelo de seguridad.
+# ─── Firebase / Firestore (config, reglas, índices, emulador, exports) ───────
+# No versionar: enlazan proyecto real, reglas de acceso e índices.
 .firebaserc
 firebase.json
 firestore.rules
@@ -56,14 +56,20 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 *-debug.log
+# Datos / salidas de emulador o exportaciones
+emulator-data/
+firestore_export/
+firebase-export-*/
+.dataconnect/
 
-# ─── Testing / E2E ───────────────────────────────────────────────────────────
+# ─── Testing / E2E / cobertura ────────────────────────────────────────────────
 test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
 coverage/
 .nyc_output/
+.vitest/
 
 # ─── Logs ─────────────────────────────────────────────────────────────────────
 logs/
@@ -82,10 +88,13 @@ lerna-debug.log*
 *.swo
 .cursor/
 
-# ─── Datos locales / dumps ────────────────────────────────────────────────────
+# ─── Datos locales / dumps / CSV con información sensible ─────────────────────
 datos.csv
 **/exports/*.csv
 **/private/*.csv
+
+# Herramientas que suelen cargar secretos desde el directorio actual
+.envrc
 
 # Notas o prompts con contexto interno (no versionar)
 prompt.md

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { MARCA_APP } from '@/constants'
 import { AppSidebar } from '@/components/layout/AppSidebar'
 import { IconMenu } from '@/components/layout/icons/NavIcons'
+import { NavigationProgress } from '@/components/layout/NavigationProgress'
 
 export interface ResponsiveAppShellProps {
   children: ReactNode
@@ -58,6 +59,7 @@ export function ResponsiveAppShell({
 
   return (
     <div className="min-h-screen bg-slate-100">
+      <NavigationProgress />
       <header className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b border-slate-200 bg-white px-3 shadow-sm lg:hidden">
         <button
           type="button"

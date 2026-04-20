@@ -1,7 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useId, useState } from 'react'
+import { IconRefresh } from '@/components/layout/icons/NavIcons'
 import { TextField } from '@/components/ui/TextField'
+import { SugerenciaOrtografica } from '@/components/ui/SugerenciaOrtografica'
 import {
   CARGOS_DIRECTIVA,
   type CargoDirectiva,
@@ -17,6 +19,8 @@ export interface DirectivaClubPanelProps {
   clubId: string
   puedeGestionar: boolean
 }
+
+type Sugerencia = { offset: number; length: number; mensaje: string; reemplazos: string[] }
 
 function filaVacia(index: number): MiembroDirectivaCliente {
   return {
@@ -66,6 +70,23 @@ function etiquetaMiembro(m: MiembroClubCliente): string {
   return `${m.nombre} ${m.apellidos} · ${m.rutFormateado}`
 }
 
+async function revisarOrtografia(texto: string): Promise<Sugerencia[]> {
+  if (!texto.trim()) return []
+  try {
+    const res = await fetch('/api/ortografia/revisar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ texto }),
+    })
+    if (!res.ok) return []
+    const data = (await res.json()) as { sugerencias?: Sugerencia[] }
+    return data.sugerencias ?? []
+  } catch {
+    return []
+  }
+}
+
 export function DirectivaClubPanel({ clubId, puedeGestionar }: DirectivaClubPanelProps) {
   const baseId = useId()
   const [miembros, setMiembros] = useState<MiembroDirectivaCliente[]>([])
@@ -77,6 +98,9 @@ export function DirectivaClubPanel({ clubId, puedeGestionar }: DirectivaClubPane
   const [mensaje, setMensaje] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null)
   const [registrados, setRegistrados] = useState<MiembroClubCliente[]>([])
   const [cargandoRegistrados, setCargandoRegistrados] = useState(false)
+  const [revisandoOrtografia, setRevisandoOrtografia] = useState(false)
+  const [sugLugarReunion, setSugLugarReunion] = useState<Sugerencia[]>([])
+  const [sugDiaReunion, setSugDiaReunion] = useState<Sugerencia[]>([])
 
   const cargar = useCallback(async () => {
     if (!clubId) {
@@ -88,6 +112,12 @@ export function DirectivaClubPanel({ clubId, puedeGestionar }: DirectivaClubPane
         credentials: 'include',
       })
       if (!res.ok) {
+        setMiembros([filaVacia(0)])
+        setLugarReunion('')
+        setDiaReunion('')
+        setHorarioReunion('')
+        setSugLugarReunion([])
+        setSugDiaReunion([])
         return
       }
       const data = (await res.json()) as { directiva?: DirectivaClubCliente | null }
@@ -103,6 +133,8 @@ export function DirectivaClubPanel({ clubId, puedeGestionar }: DirectivaClubPane
         setDiaReunion('')
         setHorarioReunion('')
       }
+      setSugLugarReunion([])
+      setSugDiaReunion([])
     } finally {
       setLoading(false)
     }
@@ -159,7 +191,26 @@ export function DirectivaClubPanel({ clubId, puedeGestionar }: DirectivaClubPane
   }
 
   function quitarMiembro(index: number) {
-    setMiembros((prev) => prev.filter((_, i) => i !== index))
+    setMiembros((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      // Mantener una fila vacía como plantilla (igual que al cargar sin cargos).
+      return next.length === 0 ? [filaVacia(0)] : next
+    })
+  }
+
+  async function handleRevisarOrtografia() {
+    if (revisandoOrtografia) return
+    setRevisandoOrtografia(true)
+    try {
+      const [resLugar, resDia] = await Promise.all([
+        revisarOrtografia(lugarReunion),
+        revisarOrtografia(diaReunion),
+      ])
+      setSugLugarReunion(resLugar)
+      setSugDiaReunion(resDia)
+    } finally {
+      setRevisandoOrtografia(false)
+    }
   }
 
   async function guardar() {
@@ -210,6 +261,7 @@ export function DirectivaClubPanel({ clubId, puedeGestionar }: DirectivaClubPane
         return
       }
       setMensaje({ tipo: 'ok', texto: 'Directiva guardada correctamente.' })
+      await cargar()
     } finally {
       setGuardando(false)
     }
@@ -223,27 +275,64 @@ export function DirectivaClubPanel({ clubId, puedeGestionar }: DirectivaClubPane
     <div className="space-y-6">
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <h3 className="text-base font-bold text-slate-800">Datos de reunión del club</h3>
+        {puedeGestionar ? (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleRevisarOrtografia()}
+              disabled={revisandoOrtografia || (!lugarReunion.trim() && !diaReunion.trim())}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-white hover:text-blue-700 disabled:opacity-50"
+            >
+              <IconRefresh className={`h-3.5 w-3.5 ${revisandoOrtografia ? 'animate-spin' : ''}`} />
+              {revisandoOrtografia ? 'Revisando...' : 'Revisar ortografía'}
+            </button>
+          </div>
+        ) : null}
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <TextField
-            fieldId={`${baseId}-lugar`}
-            label="Lugar de reunión"
-            value={lugarReunion}
-            onChange={(ev) => setLugarReunion(ev.target.value)}
-            maxLength={200}
-            placeholder="Ej: Sede social Villa Los Aromos"
-            disabled={!puedeGestionar}
-            className="font-normal"
-          />
-          <TextField
-            fieldId={`${baseId}-dia`}
-            label="Día de reunión"
-            value={diaReunion}
-            onChange={(ev) => setDiaReunion(ev.target.value)}
-            maxLength={100}
-            placeholder="Ej: Martes"
-            disabled={!puedeGestionar}
-            className="font-normal"
-          />
+          <div>
+            <TextField
+              fieldId={`${baseId}-lugar`}
+              label="Lugar de reunión"
+              value={lugarReunion}
+              onChange={(ev) => setLugarReunion(ev.target.value)}
+              maxLength={200}
+              placeholder="Ej: Sede social Villa Los Aromos"
+              disabled={!puedeGestionar}
+              className="font-normal"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <SugerenciaOrtografica
+              sugerencias={sugLugarReunion}
+              onAceptar={(texto) => {
+                setLugarReunion(texto)
+                setSugLugarReunion([])
+              }}
+              textoOriginal={lugarReunion}
+            />
+          </div>
+          <div>
+            <TextField
+              fieldId={`${baseId}-dia`}
+              label="Día de reunión"
+              value={diaReunion}
+              onChange={(ev) => setDiaReunion(ev.target.value)}
+              maxLength={100}
+              placeholder="Ej: Martes"
+              disabled={!puedeGestionar}
+              className="font-normal"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <SugerenciaOrtografica
+              sugerencias={sugDiaReunion}
+              onAceptar={(texto) => {
+                setDiaReunion(texto)
+                setSugDiaReunion([])
+              }}
+              textoOriginal={diaReunion}
+            />
+          </div>
           <TextField
             fieldId={`${baseId}-horario`}
             label="Horario"
@@ -333,7 +422,10 @@ export function DirectivaClubPanel({ clubId, puedeGestionar }: DirectivaClubPane
                 />
               </div>
               <div className="flex items-end lg:col-span-12">
-                {puedeGestionar && miembros.length > 1 ? (
+                {puedeGestionar &&
+                (miembros.length > 1 ||
+                  Boolean(m.miembroClubId) ||
+                  m.nombreCompleto.trim() !== '') ? (
                   <button
                     type="button"
                     onClick={() => quitarMiembro(i)}
