@@ -60,7 +60,7 @@ export function mapAuthError(error: unknown): AuthError {
     'api/token-id-no-verificado':
       'El navegador inició sesión en Firebase, pero el servidor no pudo validar el token. Muy frecuente: tenías el emulador de Auth y ahora no (o al revés). En `.env.local` deja `NEXT_PUBLIC_USE_FIREBASE_EMULATOR` vacío o `false` para producción; si usas emulador, define también `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099` y reinicia `npm run dev`. Comprueba que `FIREBASE_ID_PROYECTO` y `NEXT_PUBLIC_FIREBASE_PROJECT_ID` sean el mismo.',
     'api/sesion-servidor':
-      'El servidor no pudo crear la sesión. Revisa la terminal donde corre `npm run dev`: suele ser clave privada Admin incorrecta, proyecto distinto al de la app web, o cuenta de servicio sin permisos.',
+      'El servidor no pudo crear la cookie de sesión. En local: revisa la terminal de `npm run dev`. En Vercel: revisa los logs del deployment. Causas frecuentes: clave privada Admin mal pegada, `FIREBASE_*` y `NEXT_PUBLIC_FIREBASE_PROJECT_ID` de distinto proyecto, o fallo al generar la sesión en Firebase (mira el log `createSessionCookie`).',
     'api/no-encontrado':
       'No se encontró la ruta de la API. Reinicia `npm run dev` y prueba de nuevo.',
     'api/error-servidor': 'El servidor respondió con error al crear la sesión. Mira la terminal para el detalle.',

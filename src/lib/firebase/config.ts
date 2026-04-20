@@ -22,13 +22,12 @@ const adminSchema = z.object({
 })
 
 function throwIfEnvInvalid(result: z.SafeParseError<unknown>): never {
-  const first = result.error.issues[0]
-  const name = first?.path.join('_') || 'unknown'
-  const detail = first?.message
-  if (detail && detail.length > 0 && detail !== 'Invalid input') {
-    throw new Error(detail)
-  }
-  throw new Error(`Falta la variable de entorno: ${name}`)
+  const issues = result.error.issues
+  const lines = issues.map((i) => `${i.path.join('.') || 'root'}: ${i.message}`)
+  const msg = lines.join('; ')
+  // Nunca lanzar solo el mensaje genérico "Required" (Zod): sin nombre de campo no se depura en Vercel.
+  console.error('[Firebase env] Validación fallida:', msg)
+  throw new Error(`Variables Firebase inválidas o faltantes: ${msg}`)
 }
 
 /**
