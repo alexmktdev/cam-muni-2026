@@ -1,6 +1,7 @@
 import 'server-only'
 // Firebase Admin (Auth + Firestore) singleton and safe server helpers.
 
+import { createPrivateKey } from 'node:crypto'
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app'
 import { getAuth, type Auth } from 'firebase-admin/auth'
 import { getFirestore, type Firestore } from 'firebase-admin/firestore'
@@ -19,17 +20,42 @@ let firestoreRaw: Firestore | null = null
 let firestoreResolved: Firestore | null = null
 
 /**
- * Clave PEM desde .env / Vercel: quita comillas si se pegaron como parte del valor y aplica \n.
+ * Clave PEM desde .env / Vercel. Si llega mal (saltos, comillas, BOM), OpenSSL devuelve
+ * error:1E08010C:DECODER routines::unsupported al pedir el token OAuth2.
  */
 function normalizarClavePrivadaFirebase(raw: string): string {
-  let s = raw.trim()
+  let s = raw.trim().replace(/^\uFEFF/, '')
   if (
     (s.startsWith('"') && s.endsWith('"')) ||
     (s.startsWith("'") && s.endsWith("'"))
   ) {
     s = s.slice(1, -1)
   }
-  return s.replace(/\\n/g, '\n')
+  s = s.replace(/\\n/g, '\n')
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  s = s
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .trim()
+  return s
+}
+
+/** Comprueba que el PEM sea PKCS#8 válido antes de cert(); evita fallos opacos en createSessionCookie. */
+function assertPemClaveServicioFirebase(pem: string): void {
+  if (!pem.includes('BEGIN PRIVATE KEY')) {
+    throw new Error(
+      'FIREBASE_CLAVE_PRIVADA debe ser la private_key del JSON (-----BEGIN PRIVATE KEY-----).',
+    )
+  }
+  try {
+    createPrivateKey({ key: pem, format: 'pem' })
+  } catch (cause) {
+    throw new Error(
+      'FIREBASE_CLAVE_PRIVADA no decodifica como PEM. En Vercel pega el valor como en el .json (private_key con \\n), sin cortar líneas ni comillas dentro del PEM.',
+      { cause },
+    )
+  }
 }
 
 function getOrCreateAdminApp(): App {
@@ -53,6 +79,7 @@ function getOrCreateAdminApp(): App {
       delete process.env.FIRESTORE_EMULATOR_HOST
 
       const privateKey = normalizarClavePrivadaFirebase(env.FIREBASE_CLAVE_PRIVADA)
+      assertPemClaveServicioFirebase(privateKey)
       adminApp = initializeApp({
         credential: cert({
           projectId: env.FIREBASE_ID_PROYECTO,
